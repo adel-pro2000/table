@@ -77,12 +77,18 @@ const CENTER_ALIGNED_COLUMNS = new Set([
 ]);
 const FIXED_ROW_COUNT = 1500;
 const TABLE_STORAGE_KEY = "oil-filters-table-v1";
-const TABLE_EXPORT_VERSION = 3;
+const TABLE_EXPORT_VERSION = 4;
 const TABLE_EXPORT_FILE_NAME = "oil-filters-table.json";
 const FILE_SYSTEM_DB_NAME = "oil-filters-table-fs";
 const FILE_SYSTEM_STORE_NAME = "handles";
 const PROJECT_FILE_HANDLE_KEY = "project-file-handle";
 const PROJECT_FILE_NAME_KEY = "project-file-name";
+const SUPABASE_URL = "https://qtfrzbszxjcnmkczwscm.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Qx59xVDsvNYV8ybOwCmLNA_3aSq_nLN";
+const SUPABASE_TABLE_NAME = "table_projects";
+const SUPABASE_PROJECT_ID = "main";
+const SUPABASE_SAVE_DELAY_MS = 1200;
+const LOCAL_FILE_SAVE_DELAY_MS = 1200;
 const PROJECT_FILE_PICKER_TYPES = [
   {
     description: "JSON project",
@@ -210,6 +216,16 @@ const state = {
   fileSystem: {
     projectFileHandle: null,
     projectFileName: ""
+  },
+  cloud: {
+    saveTimer: null,
+    isSaving: false,
+    lastSaveError: ""
+  },
+  localFile: {
+    saveTimer: null,
+    isSaving: false,
+    lastSaveError: ""
   }
 };
 
@@ -1018,12 +1034,7 @@ function initTableSearch() {
 }
 
 function createHistorySnapshot() {
-  return {
-    rows: state.rows,
-    tbodyHtml: sheet.tBodies[0]?.innerHTML || "",
-    nextMasterId: state.nextMasterId,
-    mergedMasterIds: Array.from(state.mergedMasterIds)
-  };
+  return getStructuredTableDataSnapshot();
 }
 
 function getHistorySignature(snapshot) {
@@ -1053,6 +1064,24 @@ function pushHistorySnapshot() {
 }
 
 function applyHistorySnapshot(snapshot, options = {}) {
+  if (!snapshot) return false;
+
+  const htmlSnapshot = extractHistorySnapshot(snapshot);
+  if (htmlSnapshot) return applyHtmlTableSnapshot(htmlSnapshot, options);
+
+  const tableSnapshot = extractStructuredTableSnapshot(snapshot) || extractLegacyTableSnapshot(snapshot);
+  if (tableSnapshot) {
+    const restored = applyTableDataSnapshot(tableSnapshot);
+    if (!restored) return false;
+    if (options.persist !== false) saveTableData(false);
+    updateHistoryButtons();
+    return true;
+  }
+
+  return false;
+}
+
+function applyHtmlTableSnapshot(snapshot, options = {}) {
   if (!snapshot) return false;
 
   const { persist = true } = options;
@@ -1118,14 +1147,51 @@ function getTableDataSnapshot() {
   };
 }
 
+function getStructuredTableDataSnapshot() {
+  const data = {};
+
+  getBodyRows().forEach((tr, r) => {
+    const rowValues = getRowDataCells(tr).map((td) => getRawValue(td));
+    if (rowValues.some((value) => value !== "")) {
+      data[String(r)] = rowValues;
+    }
+  });
+
+  return {
+    rows: state.rows,
+    data,
+    merges: getMergeSnapshot(),
+    nextMasterId: state.nextMasterId
+  };
+}
+
+function getMergeSnapshot() {
+  return Array.from(state.mergedMasterIds)
+    .map((id) => {
+      const master = sheet.querySelector(`td[data-master-id="${id}"]`);
+      if (!master) return null;
+
+      return {
+        id,
+        row: Number(master.dataset.row) || 0,
+        col: Number(master.dataset.col) || 0,
+        rowSpan: Math.max(1, Number(master.rowSpan) || 1),
+        colSpan: Math.max(1, Number(master.colSpan) || 1)
+      };
+    })
+    .filter(Boolean);
+}
+
 // Сериализуем текущее состояние таблицы в переносимый JSON-проект.
 function serializeCurrentProject() {
+  const snapshot = getStructuredTableDataSnapshot();
+
   return {
     kind: "oil-filters-project",
     version: TABLE_EXPORT_VERSION,
     savedAt: new Date().toISOString(),
     columns: COLUMN_HEADERS,
-    snapshot: createHistorySnapshot()
+    snapshot
   };
 }
 
@@ -1369,6 +1435,56 @@ async function saveProjectToFileHandle(fileHandle) {
   }
 }
 
+function queueProjectFileSave() {
+  if (state.isRestoringHistory || !state.fileSystem.projectFileHandle) return;
+
+  if (state.localFile.saveTimer) {
+    clearTimeout(state.localFile.saveTimer);
+  }
+
+  state.localFile.saveTimer = window.setTimeout(() => {
+    state.localFile.saveTimer = null;
+    saveProjectToCurrentFile({ silent: true });
+  }, LOCAL_FILE_SAVE_DELAY_MS);
+}
+
+async function saveProjectToCurrentFile(options = {}) {
+  const { silent = false } = options;
+  const fileHandle = state.fileSystem.projectFileHandle;
+  if (!fileHandle) return false;
+
+  if (state.localFile.isSaving) {
+    queueProjectFileSave();
+    return false;
+  }
+
+  state.localFile.isSaving = true;
+  try {
+    const hasPermission = await ensureProjectFileHandlePermission(fileHandle, true);
+    if (!hasPermission) {
+      state.localFile.lastSaveError = "permission-denied";
+      if (!silent) setStatus("Нет доступа к файлу проекта для записи.");
+      return false;
+    }
+
+    const writable = await fileHandle.createWritable();
+    await writable.write(JSON.stringify(serializeCurrentProject(), null, 2));
+    await writable.close();
+
+    state.localFile.lastSaveError = "";
+    if (!silent) setStatus(`Проект "${fileHandle.name}" сохранен.`);
+    return true;
+  } catch (error) {
+    state.localFile.lastSaveError = error?.message || "unknown";
+    if (!silent) {
+      setStatus("Не удалось записать файл проекта.");
+    }
+    return false;
+  } finally {
+    state.localFile.isSaving = false;
+  }
+}
+
 async function saveProjectAs(options = {}) {
   const { skipLocalAutosave = false } = options;
   if (!skipLocalAutosave && !saveTableData(false)) return false;
@@ -1437,6 +1553,9 @@ async function openProjectFromFileHandle(fileHandle) {
     return false;
   }
 
+  const previousFileHandle = state.fileSystem.projectFileHandle;
+  const previousProjectName = state.fileSystem.projectFileName;
+
   const hasPermission = await ensureProjectFileHandlePermission(fileHandle, false);
   if (!hasPermission) {
     setStatus("Нет доступа к файлу проекта для чтения.");
@@ -1448,11 +1567,20 @@ async function openProjectFromFileHandle(fileHandle) {
     const payload = await readProjectPayloadFromFile(file);
     if (!payload) return false;
 
-    const applied = await applyProjectPayload(payload, file.name);
-    if (!applied) return false;
-
     state.fileSystem.projectFileHandle = fileHandle;
+    setCurrentProjectName(file.name);
     await persistProjectFileHandle(fileHandle);
+    await ensureProjectFileHandlePermission(fileHandle, true);
+
+    const applied = await applyProjectPayload(payload, file.name);
+    if (!applied) {
+      state.fileSystem.projectFileHandle = previousFileHandle;
+      setCurrentProjectName(previousProjectName);
+      return false;
+    }
+
+    queueProjectFileSave();
+    queueCloudSave();
     return true;
   } catch {
     setStatus("Не удалось открыть файл проекта.");
@@ -1504,7 +1632,31 @@ function extractLegacyTableSnapshot(payload) {
 
   return {
     rows: Math.max(1, Number(payload.rows) || FIXED_ROW_COUNT),
-    data: payload.data
+    data: payload.data,
+    merges: []
+  };
+}
+
+function extractStructuredTableSnapshot(payload) {
+  if (!payload || typeof payload !== "object") return null;
+
+  const candidate =
+    payload.snapshot && typeof payload.snapshot === "object"
+      ? payload.snapshot
+      : payload;
+
+  const hasStructuredData =
+    candidate.data
+    && typeof candidate.data === "object"
+    && !Array.isArray(candidate.data);
+
+  if (!hasStructuredData) return null;
+
+  return {
+    rows: Math.max(1, Number(candidate.rows) || FIXED_ROW_COUNT),
+    data: candidate.data,
+    merges: Array.isArray(candidate.merges) ? candidate.merges : [],
+    nextMasterId: Math.max(1, Number(candidate.nextMasterId) || 1)
   };
 }
 
@@ -1519,12 +1671,116 @@ function applyStoredTablePayload(payload) {
     return applyTableDataSnapshot(legacySnapshot);
   }
 
+  const structuredSnapshot = extractStructuredTableSnapshot(payload);
+  if (structuredSnapshot) {
+    return applyTableDataSnapshot(structuredSnapshot);
+  }
+
   return false;
 }
 
-function saveTableData(showStatus = false) {
+function getSupabaseHeaders(extraHeaders = {}) {
+  return {
+    apikey: SUPABASE_PUBLISHABLE_KEY,
+    Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+    "Content-Type": "application/json",
+    ...extraHeaders
+  };
+}
+
+function getSupabaseProjectUrl() {
+  const query = new URLSearchParams({
+    id: `eq.${SUPABASE_PROJECT_ID}`,
+    select: "payload"
+  });
+  return `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE_NAME}?${query.toString()}`;
+}
+
+function getSupabaseUpsertUrl() {
+  return `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE_NAME}`;
+}
+
+function queueCloudSave() {
+  if (state.isRestoringHistory) return;
+
+  if (state.cloud.saveTimer) {
+    clearTimeout(state.cloud.saveTimer);
+  }
+
+  state.cloud.saveTimer = window.setTimeout(() => {
+    state.cloud.saveTimer = null;
+    saveTableDataToCloud();
+  }, SUPABASE_SAVE_DELAY_MS);
+}
+
+async function saveTableDataToCloud(payload = createPortableTablePayload()) {
+  if (state.cloud.isSaving) {
+    queueCloudSave();
+    return false;
+  }
+
+  state.cloud.isSaving = true;
+  try {
+    const response = await fetch(getSupabaseUpsertUrl(), {
+      method: "POST",
+      headers: getSupabaseHeaders({
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      }),
+      body: JSON.stringify({
+        id: SUPABASE_PROJECT_ID,
+        payload,
+        updated_at: new Date().toISOString()
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    state.cloud.lastSaveError = "";
+    return true;
+  } catch (error) {
+    state.cloud.lastSaveError = error?.message || "unknown";
+    setStatus("Локально сохранено. Онлайн-сохранение пока не удалось.");
+    return false;
+  } finally {
+    state.cloud.isSaving = false;
+  }
+}
+
+async function loadTableDataFromCloud() {
+  try {
+    const response = await fetch(getSupabaseProjectUrl(), {
+      method: "GET",
+      headers: getSupabaseHeaders()
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const rows = await response.json();
+    const payload = rows?.[0]?.payload;
+    if (!payload || Object.keys(payload).length === 0) return false;
+
+    const loaded = applyStoredTablePayload(payload);
+    if (loaded) {
+      saveTableData(false, { syncCloud: false, syncFile: false });
+    }
+    return loaded;
+  } catch (error) {
+    state.cloud.lastSaveError = error?.message || "unknown";
+    return false;
+  }
+}
+
+function saveTableData(showStatus = false, options = {}) {
+  const { syncCloud = true, syncFile = true } = options;
+
   try {
     localStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify(createPortableTablePayload()));
+    if (syncCloud) queueCloudSave();
+    if (syncFile) queueProjectFileSave();
     if (showStatus) setStatus("Таблица сохранена.");
     return true;
   } catch {
@@ -1536,22 +1792,78 @@ function saveTableData(showStatus = false) {
 function applyTableDataSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return false;
 
-  const data = Array.isArray(snapshot.data) ? snapshot.data : [];
+  const data = snapshot.data;
   state.mergedMasterIds.clear();
-  state.rows = FIXED_ROW_COUNT;
+  state.nextMasterId = Math.max(1, Number(snapshot.nextMasterId) || 1);
+  state.rows = Math.min(FIXED_ROW_COUNT, Math.max(1, Number(snapshot.rows) || FIXED_ROW_COUNT));
   buildTable();
 
-  data.slice(0, state.rows).forEach((row, r) => {
-    if (!Array.isArray(row)) return;
-    row.slice(0, state.cols).forEach((value, c) => {
-      const td = getCell(r, c);
-      if (td) setRawValue(td, normalizeCellText(td, value));
+  if (Array.isArray(data)) {
+    data.slice(0, state.rows).forEach((row, r) => {
+      applyTableDataRow(row, r);
     });
-  });
+  } else if (data && typeof data === "object") {
+    Object.entries(data).forEach(([rowIndex, row]) => {
+      const r = Number(rowIndex);
+      if (!Number.isInteger(r) || r < 0 || r >= state.rows) return;
+      applyTableDataRow(row, r);
+    });
+  }
+
+  applyMergeSnapshot(snapshot.merges);
 
   renderAllCells();
   clearSelection();
   return true;
+}
+
+function applyTableDataRow(row, r) {
+  if (!Array.isArray(row)) return;
+
+  row.slice(0, state.cols).forEach((value, c) => {
+    const td = getCell(r, c);
+    if (td) setRawValue(td, normalizeCellText(td, value));
+  });
+}
+
+function applyMergeSnapshot(merges) {
+  if (!Array.isArray(merges)) return;
+
+  state.mergedMasterIds.clear();
+
+  merges.forEach((merge) => {
+    if (!merge || typeof merge !== "object") return;
+
+    const row = Number(merge.row);
+    const col = Number(merge.col);
+    const rowSpan = Math.max(1, Number(merge.rowSpan) || 1);
+    const colSpan = Math.max(1, Number(merge.colSpan) || 1);
+
+    if (!Number.isInteger(row) || !Number.isInteger(col)) return;
+    if (row < 0 || col < 0 || row >= state.rows || col >= state.cols) return;
+    if (row + rowSpan > state.rows || col + colSpan > state.cols) return;
+    if (rowSpan === 1 && colSpan === 1) return;
+
+    const master = getCell(row, col);
+    if (!master) return;
+
+    const id = String(merge.id || state.nextMasterId++);
+    master.dataset.masterId = id;
+    master.rowSpan = rowSpan;
+    master.colSpan = colSpan;
+    state.mergedMasterIds.add(id);
+
+    for (let r = row; r < row + rowSpan; r++) {
+      for (let c = col; c < col + colSpan; c++) {
+        if (r === row && c === col) continue;
+        const cell = getCell(r, c);
+        if (!cell) continue;
+        cell.classList.add("hidden");
+        cell.dataset.hiddenBy = id;
+        cell.classList.remove("selected");
+      }
+    }
+  });
 }
 
 function loadTableData() {
@@ -1559,7 +1871,7 @@ function loadTableData() {
     const raw = localStorage.getItem(TABLE_STORAGE_KEY);
     if (!raw) return false;
     const loaded = applyStoredTablePayload(JSON.parse(raw));
-    if (loaded) saveTableData(false);
+    if (loaded) saveTableData(false, { syncCloud: false, syncFile: false });
     return loaded;
   } catch {
     return false;
@@ -3249,10 +3561,14 @@ async function initApp() {
     }
   }
 
-  if (loadTableData()) {
-    setStatus("Сохраненные данные таблицы загружены.");
+  if (await loadTableDataFromCloud()) {
+    setStatus("Онлайн-данные таблицы загружены.");
+  } else if (loadTableData()) {
+    setStatus("Локальные данные таблицы загружены. Отправляю копию онлайн...");
+    queueCloudSave();
   } else {
     buildTable();
+    queueCloudSave();
   }
 
   pushHistorySnapshot();
