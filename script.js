@@ -4,6 +4,7 @@ const statusEl = document.getElementById("status");
 const emptySearchStateEl = document.getElementById("emptySearchState");
 const fillHandleEl = document.getElementById("fillHandle");
 const tableWrapEl = document.querySelector(".table-wrap");
+const tableTitleEl = document.getElementById("tableTitle");
 const rowControlsEl = document.getElementById("rowControls");
 const insertRowAboveMouseBtn = document.getElementById("insertRowAboveMouse");
 const insertRowBelowMouseBtn = document.getElementById("insertRowBelowMouse");
@@ -1243,6 +1244,7 @@ function renderSheetTabs() {
   if (!sheetTabsListEl) return;
 
   ensureWorkbookInitialized();
+  updateTableTitle();
   sheetTabsListEl.innerHTML = "";
 
   state.workbook.sheets.forEach((sheetItem) => {
@@ -1260,6 +1262,12 @@ function renderSheetTabs() {
   });
 
   if (deleteSheetBtn) deleteSheetBtn.disabled = state.workbook.sheets.length <= 1;
+}
+
+function updateTableTitle() {
+  if (!tableTitleEl) return;
+  const activeSheet = getActiveSheet();
+  tableTitleEl.textContent = normalizeSheetName(activeSheet?.name);
 }
 
 function applySheetSnapshot(snapshot) {
