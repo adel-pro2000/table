@@ -14,6 +14,10 @@ const openProjectBtn = document.getElementById("openProject");
 const saveProjectBtn = document.getElementById("saveProject");
 const saveProjectAsBtn = document.getElementById("saveProjectAs");
 const openProjectFileInputEl = document.getElementById("openProjectFile");
+const sheetTabsListEl = document.getElementById("sheetTabsList");
+const addSheetBtn = document.getElementById("addSheet");
+const renameSheetBtn = document.getElementById("renameSheet");
+const deleteSheetBtn = document.getElementById("deleteSheet");
 const crossImportBtn = document.getElementById("crossImport");
 const undoActionBtn = document.getElementById("undoAction");
 const redoActionBtn = document.getElementById("redoAction");
@@ -77,7 +81,8 @@ const CENTER_ALIGNED_COLUMNS = new Set([
 ]);
 const FIXED_ROW_COUNT = 1500;
 const TABLE_STORAGE_KEY = "oil-filters-table-v1";
-const TABLE_EXPORT_VERSION = 4;
+const TABLE_EXPORT_VERSION = 5;
+const DEFAULT_SHEET_NAME = "Лист 1";
 const TABLE_EXPORT_FILE_NAME = "oil-filters-table.json";
 const FILE_SYSTEM_DB_NAME = "oil-filters-table-fs";
 const FILE_SYSTEM_STORE_NAME = "handles";
@@ -216,6 +221,11 @@ const state = {
   fileSystem: {
     projectFileHandle: null,
     projectFileName: ""
+  },
+  workbook: {
+    sheets: [],
+    activeSheetId: "",
+    nextSheetId: 1
   },
   cloud: {
     saveTimer: null,
@@ -1165,6 +1175,182 @@ function getStructuredTableDataSnapshot() {
   };
 }
 
+function createEmptySheetSnapshot() {
+  return {
+    rows: FIXED_ROW_COUNT,
+    data: {},
+    merges: [],
+    nextMasterId: 1
+  };
+}
+
+function createSheet(id, name, snapshot = createEmptySheetSnapshot()) {
+  return {
+    id: String(id),
+    name: normalizeSheetName(name),
+    snapshot
+  };
+}
+
+function normalizeSheetName(value) {
+  const normalized = String(value ?? "").trim().replace(/\s+/g, " ");
+  return normalized || DEFAULT_SHEET_NAME;
+}
+
+function getNextSheetId() {
+  const id = `sheet-${state.workbook.nextSheetId}`;
+  state.workbook.nextSheetId += 1;
+  return id;
+}
+
+function ensureWorkbookInitialized() {
+  if (state.workbook.sheets.length && state.workbook.activeSheetId) return;
+
+  const id = getNextSheetId();
+  state.workbook.sheets = [createSheet(id, DEFAULT_SHEET_NAME)];
+  state.workbook.activeSheetId = id;
+}
+
+function getActiveSheet() {
+  ensureWorkbookInitialized();
+  return state.workbook.sheets.find((sheetItem) => sheetItem.id === state.workbook.activeSheetId)
+    || state.workbook.sheets[0];
+}
+
+function saveActiveSheetSnapshot() {
+  const activeSheet = getActiveSheet();
+  if (!activeSheet) return null;
+  activeSheet.snapshot = getStructuredTableDataSnapshot();
+  return activeSheet.snapshot;
+}
+
+function createWorkbookPayload() {
+  ensureWorkbookInitialized();
+  saveActiveSheetSnapshot();
+
+  return {
+    activeSheetId: state.workbook.activeSheetId,
+    nextSheetId: state.workbook.nextSheetId,
+    sheets: state.workbook.sheets.map((sheetItem) => ({
+      id: sheetItem.id,
+      name: normalizeSheetName(sheetItem.name),
+      snapshot: sheetItem.snapshot || createEmptySheetSnapshot()
+    }))
+  };
+}
+
+function renderSheetTabs() {
+  if (!sheetTabsListEl) return;
+
+  ensureWorkbookInitialized();
+  sheetTabsListEl.innerHTML = "";
+
+  state.workbook.sheets.forEach((sheetItem) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "sheet-tab";
+    button.textContent = normalizeSheetName(sheetItem.name);
+    button.title = button.textContent;
+    button.dataset.sheetId = sheetItem.id;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", sheetItem.id === state.workbook.activeSheetId ? "true" : "false");
+    if (sheetItem.id === state.workbook.activeSheetId) button.classList.add("is-active");
+    button.addEventListener("click", () => switchToSheet(sheetItem.id));
+    sheetTabsListEl.appendChild(button);
+  });
+
+  if (deleteSheetBtn) deleteSheetBtn.disabled = state.workbook.sheets.length <= 1;
+}
+
+function applySheetSnapshot(snapshot) {
+  state.isRestoringHistory = true;
+  try {
+    const htmlSnapshot = extractHistorySnapshot(snapshot);
+    if (htmlSnapshot) {
+      applyHtmlTableSnapshot(htmlSnapshot, { persist: false });
+    } else {
+      applyTableDataSnapshot(snapshot || createEmptySheetSnapshot());
+    }
+  } finally {
+    state.isRestoringHistory = false;
+  }
+}
+
+function switchToSheet(sheetId) {
+  ensureWorkbookInitialized();
+  if (sheetId === state.workbook.activeSheetId) return;
+
+  const targetSheet = state.workbook.sheets.find((sheetItem) => sheetItem.id === sheetId);
+  if (!targetSheet) return;
+
+  closeCellEditor();
+  saveActiveSheetSnapshot();
+  state.workbook.activeSheetId = targetSheet.id;
+  applySheetSnapshot(targetSheet.snapshot);
+  resetHistoryState();
+  renderSheetTabs();
+  saveTableData(false);
+  setStatus(`Открыт лист "${targetSheet.name}".`);
+}
+
+function addWorkbookSheet() {
+  ensureWorkbookInitialized();
+  saveActiveSheetSnapshot();
+
+  const sheetNumber = state.workbook.sheets.length + 1;
+  const response = window.prompt("Название нового листа", `Лист ${sheetNumber}`);
+  if (response === null) return;
+  const name = normalizeSheetName(response);
+
+  const id = getNextSheetId();
+  const sheetItem = createSheet(id, name);
+  state.workbook.sheets.push(sheetItem);
+  state.workbook.activeSheetId = id;
+  applySheetSnapshot(sheetItem.snapshot);
+  resetHistoryState();
+  renderSheetTabs();
+  saveTableData(false);
+  setStatus(`Создан лист "${sheetItem.name}".`);
+}
+
+function renameActiveWorkbookSheet() {
+  const activeSheet = getActiveSheet();
+  if (!activeSheet) return;
+
+  const nextName = window.prompt("Новое название листа", activeSheet.name);
+  if (nextName === null) return;
+
+  activeSheet.name = normalizeSheetName(nextName);
+  renderSheetTabs();
+  saveTableData(false);
+  setStatus(`Лист переименован в "${activeSheet.name}".`);
+}
+
+function deleteActiveWorkbookSheet() {
+  ensureWorkbookInitialized();
+  if (state.workbook.sheets.length <= 1) {
+    setStatus("Нельзя удалить единственный лист.");
+    return;
+  }
+
+  const activeSheet = getActiveSheet();
+  if (!activeSheet) return;
+  closeCellEditor();
+  saveActiveSheetSnapshot();
+  if (!window.confirm(`Удалить лист "${activeSheet.name}"?`)) return;
+
+  const activeIndex = state.workbook.sheets.findIndex((sheetItem) => sheetItem.id === activeSheet.id);
+  state.workbook.sheets.splice(activeIndex, 1);
+
+  const nextSheet = state.workbook.sheets[Math.max(0, activeIndex - 1)] || state.workbook.sheets[0];
+  state.workbook.activeSheetId = nextSheet.id;
+  applySheetSnapshot(nextSheet.snapshot);
+  resetHistoryState();
+  renderSheetTabs();
+  saveTableData(false);
+  setStatus(`Лист "${activeSheet.name}" удален.`);
+}
+
 function getMergeSnapshot() {
   return Array.from(state.mergedMasterIds)
     .map((id) => {
@@ -1184,14 +1370,14 @@ function getMergeSnapshot() {
 
 // Сериализуем текущее состояние таблицы в переносимый JSON-проект.
 function serializeCurrentProject() {
-  const snapshot = getStructuredTableDataSnapshot();
+  const workbook = createWorkbookPayload();
 
   return {
     kind: "oil-filters-project",
     version: TABLE_EXPORT_VERSION,
     savedAt: new Date().toISOString(),
     columns: COLUMN_HEADERS,
-    snapshot
+    workbook
   };
 }
 
@@ -1412,6 +1598,8 @@ async function applyProjectPayload(payload, fileName) {
 
 async function saveProjectToFileHandle(fileHandle) {
   if (!fileHandle) return false;
+  closeCellEditor();
+  saveActiveSheetSnapshot();
 
   const hasPermission = await ensureProjectFileHandlePermission(fileHandle, true);
   if (!hasPermission) {
@@ -1663,20 +1851,90 @@ function extractStructuredTableSnapshot(payload) {
   };
 }
 
+function extractWorkbookSnapshot(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const workbook = payload.workbook && typeof payload.workbook === "object" ? payload.workbook : null;
+  if (!workbook || !Array.isArray(workbook.sheets)) return null;
+
+  const sheets = workbook.sheets
+    .map((sheetItem, index) => {
+      if (!sheetItem || typeof sheetItem !== "object") return null;
+      const id = String(sheetItem.id || `sheet-${index + 1}`);
+      const snapshot =
+        extractStructuredTableSnapshot(sheetItem.snapshot)
+        || extractLegacyTableSnapshot(sheetItem.snapshot)
+        || extractHistorySnapshot(sheetItem.snapshot);
+
+      return createSheet(
+        id,
+        sheetItem.name || `Лист ${index + 1}`,
+        snapshot || createEmptySheetSnapshot()
+      );
+    })
+    .filter(Boolean);
+
+  if (!sheets.length) return null;
+
+  const activeSheetId = sheets.some((sheetItem) => sheetItem.id === workbook.activeSheetId)
+    ? String(workbook.activeSheetId)
+    : sheets[0].id;
+
+  return {
+    sheets,
+    activeSheetId,
+    nextSheetId: Math.max(
+      Number(workbook.nextSheetId) || 1,
+      sheets.length + 1
+    )
+  };
+}
+
+function applyWorkbookSnapshot(workbook) {
+  if (!workbook || !Array.isArray(workbook.sheets) || !workbook.sheets.length) return false;
+
+  state.workbook.sheets = workbook.sheets;
+  state.workbook.activeSheetId = workbook.activeSheetId;
+  state.workbook.nextSheetId = Math.max(1, Number(workbook.nextSheetId) || workbook.sheets.length + 1);
+
+  const activeSheet = getActiveSheet();
+  applySheetSnapshot(activeSheet?.snapshot || createEmptySheetSnapshot());
+  renderSheetTabs();
+  return true;
+}
+
+function wrapCurrentTableInWorkbook(name = DEFAULT_SHEET_NAME) {
+  const id = getNextSheetId();
+  const snapshot = getStructuredTableDataSnapshot();
+  state.workbook.sheets = [createSheet(id, name, snapshot)];
+  state.workbook.activeSheetId = id;
+  renderSheetTabs();
+}
+
 function applyStoredTablePayload(payload) {
+  const workbook = extractWorkbookSnapshot(payload);
+  if (workbook) {
+    return applyWorkbookSnapshot(workbook);
+  }
+
   const historySnapshot = extractHistorySnapshot(payload);
   if (historySnapshot) {
-    return applyHistorySnapshot(historySnapshot, { persist: false });
+    const restored = applyHistorySnapshot(historySnapshot, { persist: false });
+    if (restored) wrapCurrentTableInWorkbook();
+    return restored;
   }
 
   const legacySnapshot = extractLegacyTableSnapshot(payload);
   if (legacySnapshot) {
-    return applyTableDataSnapshot(legacySnapshot);
+    const restored = applyTableDataSnapshot(legacySnapshot);
+    if (restored) wrapCurrentTableInWorkbook();
+    return restored;
   }
 
   const structuredSnapshot = extractStructuredTableSnapshot(payload);
   if (structuredSnapshot) {
-    return applyTableDataSnapshot(structuredSnapshot);
+    const restored = applyTableDataSnapshot(structuredSnapshot);
+    if (restored) wrapCurrentTableInWorkbook();
+    return restored;
   }
 
   return false;
@@ -3416,6 +3674,18 @@ saveProjectAsBtn.addEventListener("click", async () => {
   await saveProjectAs();
 });
 
+addSheetBtn.addEventListener("click", () => {
+  addWorkbookSheet();
+});
+
+renameSheetBtn.addEventListener("click", () => {
+  renameActiveWorkbookSheet();
+});
+
+deleteSheetBtn.addEventListener("click", () => {
+  deleteActiveWorkbookSheet();
+});
+
 openProjectFileInputEl.addEventListener("change", async (event) => {
   await importProjectFile(event.target.files?.[0] || null);
 });
@@ -3580,9 +3850,13 @@ async function initApp() {
     queueCloudSave();
   } else {
     buildTable();
+    wrapCurrentTableInWorkbook();
     queueCloudSave();
   }
 
+  ensureWorkbookInitialized();
+  saveActiveSheetSnapshot();
+  renderSheetTabs();
   pushHistorySnapshot();
   updateHistoryButtons();
   setCrossImportModalVisibility(false);
