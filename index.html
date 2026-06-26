@@ -1,0 +1,248 @@
+﻿<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Excel-подобная таблица</title>
+  <link
+    rel="icon"
+    type="image/svg+xml"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='white'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='42' font-weight='700' font-family='Arial,sans-serif' fill='%23d62828'%3EA%3C/text%3E%3C/svg%3E"
+  />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <div class="toolbar">
+      <button id="addRow">+ Строка</button>
+      <button id="removeRow">- Строка</button>
+      <button id="clearCells">Очистить ячейки</button>
+      <button id="openProject">Открыть проект</button>
+      <button id="saveProject">Сохранить проект</button>
+      <button id="saveProjectAs">Сохранить проект как...</button>
+      <button id="crossImport">Заполнить Кроссы</button>
+      <button id="undoAction">Отменить</button>
+      <button id="redoAction">Вернуть</button>
+      <button id="merge" class="primary">Объединить выделение</button>
+      <button id="unmerge">Разъединить всё</button>
+      <span id="buildBadge" class="build-badge"></span>
+      <span class="hint">Фиксированная таблица на 7 столбцов, формулы: =A1+B1, =SUM(A1:B3), Ctrl+Z / Ctrl+Y для отмены и возврата действий. Проекты сохраняются в JSON. Если браузер поддерживает File System Access API, повторное сохранение идёт в тот же файл без повторного выбора. В "Кроссы" правый клик открывает обычное меню браузера для вставки</span>
+    </div>
+    <input id="openProjectFile" type="file" accept=".json,application/json" hidden />
+
+    <div class="table-section">
+      <div class="table-layout">
+        <div class="table-main">
+          <div class="table-title">Масляные фильтра</div>
+
+          <div class="table-wrap">
+            <div id="rowControls" class="row-controls" hidden aria-hidden="true">
+              <button
+                id="insertRowAboveMouse"
+                class="row-control-button"
+                type="button"
+                title="Вставить строку выше"
+                aria-label="Вставить строку выше"
+              >&uarr;</button>
+              <button
+                id="insertRowBelowMouse"
+                class="row-control-button"
+                type="button"
+                title="Вставить строку ниже"
+                aria-label="Вставить строку ниже"
+              >&darr;</button>
+              <button
+                id="removeRowMouse"
+                class="row-control-button row-control-button--danger"
+                type="button"
+                title="Удалить строку"
+                aria-label="Удалить строку"
+              >-</button>
+            </div>
+            <table id="sheet"></table>
+            <div id="fillHandle" class="fill-handle" hidden></div>
+          </div>
+
+          <div id="emptySearchState" class="empty-search-state" hidden>По вашему запросу ничего не найдено.</div>
+        </div>
+
+        <aside class="search-panel" aria-label="Панель поиска">
+          <div class="search-panel__title">Поиск по таблице</div>
+
+          <section class="search-card">
+            <div class="search-card__title">Колонка "Кроссы"</div>
+            <div class="search-card__hint">
+              Поиск применяется по кнопке. Доступны строгий режим и поиск по совпадению букв, цифр и символов.
+            </div>
+            <div class="search-card__modes" role="group" aria-label="Режим поиска по кросам">
+              <button id="articleSearchModeContains" class="search-mode-button is-active" type="button" data-mode="contains">По совпадению</button>
+              <button id="articleSearchModeStrict" class="search-mode-button" type="button" data-mode="strict">Строго</button>
+            </div>
+            <input
+              id="articleSearchInput"
+              class="search-card__input"
+              type="search"
+              placeholder="Первый кросс, например: AB123"
+              aria-label="Первый кросс для поиска"
+              autocomplete="off"
+            />
+            <input
+              id="articleSearchInputSecondary"
+              class="search-card__input"
+              type="search"
+              placeholder="Второй кросс, например: CD-456"
+              aria-label="Второй кросс для поиска"
+              autocomplete="off"
+            />
+            <input
+              id="articleSearchInputTertiary"
+              class="search-card__input"
+              type="search"
+              placeholder="Третий кросс, например: EF-789"
+              aria-label="Третий кросс для поиска"
+              autocomplete="off"
+            />
+            <input
+              id="articleSearchInputQuaternary"
+              class="search-card__input"
+              type="search"
+              placeholder="Четвёртый кросс, например: GH012"
+              aria-label="Четвёртый кросс для поиска"
+              autocomplete="off"
+            />
+            <div class="search-card__actions">
+              <button id="articleSearchApply" type="button">Применить</button>
+              <button id="articleSearchReset" type="button">Сбросить</button>
+            </div>
+          </section>
+
+          <section class="search-card">
+            <div class="search-card__title">Колонка "Автомобиль"</div>
+            <div class="search-card__hint">
+              Поиск применяется по кнопке. Доступны строгий режим и поиск по совпадению букв, цифр и символов.
+            </div>
+            <div class="search-card__modes" role="group" aria-label="Режим поиска по автомобилям">
+              <button id="vehicleSearchModeContains" class="search-mode-button is-active" type="button" data-mode="contains">По совпадению</button>
+              <button id="vehicleSearchModeStrict" class="search-mode-button" type="button" data-mode="strict">Строго</button>
+            </div>
+            <input
+              id="vehicleSearchInput"
+              class="search-card__input"
+              type="search"
+              placeholder="Например: Toyota Corolla"
+              autocomplete="off"
+            />
+            <div class="search-card__actions">
+              <button id="vehicleSearchApply" type="button">Применить</button>
+              <button id="vehicleSearchReset" type="button">Сбросить</button>
+            </div>
+          </section>
+
+          <section class="search-card">
+            <div class="search-card__title">Колонка "Артикул"</div>
+            <div class="search-card__hint">
+              Поиск применяется по кнопке. Доступны строгий режим и поиск по совпадению букв, цифр и символов.
+            </div>
+            <div class="search-card__modes" role="group" aria-label="Режим поиска по артикулам">
+              <button id="partNumberSearchModeContains" class="search-mode-button is-active" type="button" data-mode="contains">По совпадению</button>
+              <button id="partNumberSearchModeStrict" class="search-mode-button" type="button" data-mode="strict">Строго</button>
+            </div>
+            <input
+              id="partNumberSearchInput"
+              class="search-card__input"
+              type="search"
+              placeholder="Первый артикул, например: AB123"
+              aria-label="Первый артикул для поиска"
+              autocomplete="off"
+            />
+            <input
+              id="partNumberSearchInputSecondary"
+              class="search-card__input"
+              type="search"
+              placeholder="Второй артикул, например: CD-456"
+              aria-label="Второй артикул для поиска"
+              autocomplete="off"
+            />
+            <div class="search-card__actions">
+              <button id="partNumberSearchApply" type="button">Применить</button>
+              <button id="partNumberSearchReset" type="button">Сбросить</button>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+
+    <div class="status" id="status">Готово к работе.</div>
+  </div>
+
+  <div id="crossImportModal" class="modal-backdrop" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="crossImportTitle">
+      <div class="modal-card__header">
+        <div>
+          <div id="crossImportTitle" class="modal-card__title">Заполнение "Кроссы"</div>
+          <div id="crossImportTarget" class="modal-card__subtitle">Выберите одну ячейку в столбце "Кроссы".</div>
+        </div>
+        <button id="crossImportClose" type="button" aria-label="Закрыть">Закрыть</button>
+      </div>
+
+      <label class="modal-field">
+        <span>Ссылка на источник</span>
+        <input id="crossImportUrl" type="url" placeholder="https://example.com/..." />
+      </label>
+
+      <div class="modal-actions">
+        <button id="crossImportFetch" type="button">Загрузить автоматически</button>
+        <button id="crossImportExtract" type="button">Извлечь из текста</button>
+      </div>
+
+      <label class="modal-field">
+        <span>Текст источника / ручной fallback</span>
+        <textarea id="crossImportSource" rows="8" placeholder="Если автоматическая загрузка не сработала, вставьте сюда текст вручную и нажмите 'Извлечь из текста'."></textarea>
+      </label>
+
+      <label class="modal-field">
+        <span>Результат для записи в "Кроссы"</span>
+        <textarea id="crossImportResult" rows="6" placeholder="Здесь можно вручную поправить итог перед записью."></textarea>
+      </label>
+
+      <div id="crossImportStatus" class="modal-card__status">Автозагрузка использует безопасный сервисный слой. Если сайт блокирует доступ, используйте ручную вставку текста.</div>
+
+      <div class="modal-actions modal-actions--end">
+        <button id="crossImportApply" type="button" class="primary">Записать в "Кроссы"</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="crossEditModal" class="modal-backdrop" hidden>
+    <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="crossEditTitle">
+      <div class="modal-card__header">
+        <div>
+          <div id="crossEditTitle" class="modal-card__title">Редактирование "Кроссы"</div>
+          <div id="crossEditTarget" class="modal-card__subtitle">Выберите ячейку в столбце "Кроссы".</div>
+        </div>
+        <button id="crossEditClose" type="button" aria-label="Закрыть">Закрыть</button>
+      </div>
+
+      <label class="modal-field">
+        <span>Содержимое ячейки</span>
+        <textarea id="crossEditTextarea" class="cross-edit-textarea" rows="16" placeholder="Введите или вставьте содержимое для ячейки &quot;Кросы&quot;."></textarea>
+      </label>
+
+      <div class="modal-card__status">
+        Можно очистить артикулы от пробелов, точек, дефисов и тире. `Ctrl+Enter` сохраняет, `Esc` отменяет изменения.
+      </div>
+
+      <div class="modal-actions modal-actions--spread">
+        <button id="crossEditNormalize" type="button">Очистить артикулы</button>
+      </div>
+
+      <div class="modal-actions modal-actions--end">
+        <button id="crossEditCancel" type="button">Отменить</button>
+        <button id="crossEditSave" type="button" class="primary">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
