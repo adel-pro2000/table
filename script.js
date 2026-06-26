@@ -1427,7 +1427,10 @@ async function saveProjectToFileHandle(fileHandle) {
     state.fileSystem.projectFileHandle = fileHandle;
     setCurrentProjectName(fileHandle.name);
     await persistProjectFileHandle(fileHandle);
-    setStatus(`Проект "${fileHandle.name}" сохранен.`);
+    const cloudSaved = await flushCloudSave();
+    setStatus(cloudSaved
+      ? `Проект "${fileHandle.name}" сохранен локально и онлайн.`
+      : `Проект "${fileHandle.name}" сохранен локально. Онлайн-сохранение пока не удалось.`);
     return true;
   } catch {
     setStatus("Не удалось записать файл проекта.");
@@ -1580,7 +1583,7 @@ async function openProjectFromFileHandle(fileHandle) {
     }
 
     queueProjectFileSave();
-    queueCloudSave();
+    await flushCloudSave();
     return true;
   } catch {
     setStatus("Не удалось открыть файл проекта.");
@@ -1746,6 +1749,15 @@ async function saveTableDataToCloud(payload = createPortableTablePayload()) {
   } finally {
     state.cloud.isSaving = false;
   }
+}
+
+async function flushCloudSave(payload = createPortableTablePayload()) {
+  if (state.cloud.saveTimer) {
+    clearTimeout(state.cloud.saveTimer);
+    state.cloud.saveTimer = null;
+  }
+
+  return saveTableDataToCloud(payload);
 }
 
 async function loadTableDataFromCloud() {
