@@ -96,6 +96,25 @@ button.primary:hover {
   white-space: nowrap;
 }
 
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid #c7d8cb;
+  border-radius: 999px;
+  background: #f0faf3;
+  color: #1e5034;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sync-status.is-error {
+  border-color: #f0b8b8;
+  background: #fff1f1;
+  color: #8b1f1f;
+}
+
 .table-section {
   padding: 16px 16px 0;
 }

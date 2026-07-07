@@ -14,6 +14,8 @@ const removeRowBtn = document.getElementById("removeRow");
 const openProjectBtn = document.getElementById("openProject");
 const saveProjectBtn = document.getElementById("saveProject");
 const saveProjectAsBtn = document.getElementById("saveProjectAs");
+const saveProjectOnlineBtn = document.getElementById("saveProjectOnline");
+const downloadProjectCopyBtn = document.getElementById("downloadProjectCopy");
 const openProjectFileInputEl = document.getElementById("openProjectFile");
 const sheetTabsListEl = document.getElementById("sheetTabsList");
 const addSheetBtn = document.getElementById("addSheet");
@@ -59,6 +61,7 @@ const crossImportExtractBtn = document.getElementById("crossImportExtract");
 const crossImportApplyBtn = document.getElementById("crossImportApply");
 const crossImportCloseBtn = document.getElementById("crossImportClose");
 const buildBadgeEl = document.getElementById("buildBadge");
+const syncStatusEl = document.getElementById("syncStatus");
 const APP_BUILD_ID = "table 2026-03-24 00:35";
 const COLUMN_HEADERS = [
   "Бренд",
@@ -237,6 +240,11 @@ const state = {
     saveTimer: null,
     isSaving: false,
     lastSaveError: ""
+  },
+  syncStatus: {
+    browser: "Браузер: ожидает",
+    file: "Файл: не выбран",
+    cloud: "Онлайн: ожидает"
   }
 };
 
@@ -335,6 +343,20 @@ const crossImportService = {
 
 function setStatus(text) {
   statusEl.textContent = text;
+}
+
+function updateSyncStatus(partial = {}) {
+  Object.assign(state.syncStatus, partial);
+  if (!syncStatusEl) return;
+
+  syncStatusEl.textContent = [
+    state.syncStatus.browser,
+    state.syncStatus.file,
+    state.syncStatus.cloud
+  ].join(" | ");
+
+  const hasError = /ошибка|не удалось|нет доступа/i.test(syncStatusEl.textContent);
+  syncStatusEl.classList.toggle("is-error", hasError);
 }
 
 function cellKey(r, c) {
@@ -1608,9 +1630,11 @@ async function saveProjectToFileHandle(fileHandle) {
   if (!fileHandle) return false;
   closeCellEditor();
   saveActiveSheetSnapshot();
+  updateSyncStatus({ file: "Файл: сохраняю..." });
 
   const hasPermission = await ensureProjectFileHandlePermission(fileHandle, true);
   if (!hasPermission) {
+    updateSyncStatus({ file: "Файл: нет доступа" });
     setStatus("Нет доступа к файлу проекта для записи.");
     return false;
   }
@@ -1623,12 +1647,14 @@ async function saveProjectToFileHandle(fileHandle) {
     state.fileSystem.projectFileHandle = fileHandle;
     setCurrentProjectName(fileHandle.name);
     await persistProjectFileHandle(fileHandle);
+    updateSyncStatus({ file: `Файл: ${fileHandle.name}` });
     const cloudSaved = await flushCloudSave();
     setStatus(cloudSaved
       ? `Проект "${fileHandle.name}" сохранен локально и онлайн.`
       : `Проект "${fileHandle.name}" сохранен локально. Онлайн-сохранение пока не удалось.`);
     return true;
   } catch {
+    updateSyncStatus({ file: "Файл: ошибка записи" });
     setStatus("Не удалось записать файл проекта.");
     return false;
   }
@@ -1659,9 +1685,11 @@ async function saveProjectToCurrentFile(options = {}) {
 
   state.localFile.isSaving = true;
   try {
+    updateSyncStatus({ file: "Файл: сохраняю..." });
     const hasPermission = await ensureProjectFileHandlePermission(fileHandle, true);
     if (!hasPermission) {
       state.localFile.lastSaveError = "permission-denied";
+      updateSyncStatus({ file: "Файл: нет доступа" });
       if (!silent) setStatus("Нет доступа к файлу проекта для записи.");
       return false;
     }
@@ -1671,10 +1699,12 @@ async function saveProjectToCurrentFile(options = {}) {
     await writable.close();
 
     state.localFile.lastSaveError = "";
-    if (!silent) setStatus(`Проект "${fileHandle.name}" сохранен.`);
+    updateSyncStatus({ file: `Файл: ${fileHandle.name}` });
+    if (!silent) setStatus(`Проект "${fileHandle.name}" сохранен локально.`);
     return true;
   } catch (error) {
     state.localFile.lastSaveError = error?.message || "unknown";
+    updateSyncStatus({ file: "Файл: ошибка записи" });
     if (!silent) {
       setStatus("Не удалось записать файл проекта.");
     }
@@ -1989,6 +2019,7 @@ async function saveTableDataToCloud(payload = createPortableTablePayload()) {
   }
 
   state.cloud.isSaving = true;
+  updateSyncStatus({ cloud: "Онлайн: сохраняю..." });
   try {
     const response = await fetch(getSupabaseUpsertUrl(), {
       method: "POST",
@@ -2007,9 +2038,11 @@ async function saveTableDataToCloud(payload = createPortableTablePayload()) {
     }
 
     state.cloud.lastSaveError = "";
+    updateSyncStatus({ cloud: "Онлайн: сохранено" });
     return true;
   } catch (error) {
     state.cloud.lastSaveError = error?.message || "unknown";
+    updateSyncStatus({ cloud: "Онлайн: ошибка" });
     setStatus("Локально сохранено. Онлайн-сохранение пока не удалось.");
     return false;
   } finally {
@@ -2027,6 +2060,7 @@ async function flushCloudSave(payload = createPortableTablePayload()) {
 }
 
 async function loadTableDataFromCloud() {
+  updateSyncStatus({ cloud: "Онлайн: загружаю..." });
   try {
     const response = await fetch(getSupabaseProjectUrl(), {
       method: "GET",
@@ -2039,15 +2073,20 @@ async function loadTableDataFromCloud() {
 
     const rows = await response.json();
     const payload = rows?.[0]?.payload;
-    if (!payload || Object.keys(payload).length === 0) return false;
+    if (!payload || Object.keys(payload).length === 0) {
+      updateSyncStatus({ cloud: "Онлайн: пусто" });
+      return false;
+    }
 
     const loaded = applyStoredTablePayload(payload);
     if (loaded) {
       saveTableData(false, { syncCloud: false, syncFile: false });
+      updateSyncStatus({ cloud: "Онлайн: загружено" });
     }
     return loaded;
   } catch (error) {
     state.cloud.lastSaveError = error?.message || "unknown";
+    updateSyncStatus({ cloud: "Онлайн: недоступно" });
     return false;
   }
 }
@@ -2057,11 +2096,17 @@ function saveTableData(showStatus = false, options = {}) {
 
   try {
     localStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify(createPortableTablePayload()));
+    updateSyncStatus({
+      browser: "Браузер: сохранено",
+      ...(syncCloud ? { cloud: "Онлайн: ожидает" } : {}),
+      ...(syncFile && state.fileSystem.projectFileHandle ? { file: "Файл: ожидает" } : {})
+    });
     if (syncCloud) queueCloudSave();
     if (syncFile) queueProjectFileSave();
     if (showStatus) setStatus("Таблица сохранена.");
     return true;
   } catch {
+    updateSyncStatus({ browser: "Браузер: ошибка" });
     setStatus("Не удалось сохранить таблицу.");
     return false;
   }
@@ -2183,12 +2228,31 @@ function downloadProjectFile(fileName = TABLE_EXPORT_FILE_NAME) {
     link.remove();
     URL.revokeObjectURL(url);
     setCurrentProjectName(link.download);
+    updateSyncStatus({ file: `Файл: скачан ${link.download}` });
     setStatus(`Проект "${link.download}" выгружен как JSON-файл.`);
     return true;
   } catch {
+    updateSyncStatus({ file: "Файл: ошибка скачивания" });
     setStatus("Не удалось сохранить проект в JSON-файл.");
     return false;
   }
+}
+
+async function saveProjectOnline() {
+  closeCellEditor();
+  saveActiveSheetSnapshot();
+  if (!saveTableData(false, { syncCloud: false, syncFile: false })) return false;
+
+  const saved = await flushCloudSave();
+  setStatus(saved ? "Данные сохранены онлайн." : "Онлайн-сохранение пока не удалось.");
+  return saved;
+}
+
+function downloadLocalProjectCopy() {
+  closeCellEditor();
+  saveActiveSheetSnapshot();
+  if (!saveTableData(false, { syncCloud: false, syncFile: false })) return false;
+  return downloadProjectFile(getCurrentProjectFileName({ allowDefault: true }));
 }
 
 async function importProjectFile(file) {
@@ -3682,6 +3746,14 @@ saveProjectAsBtn.addEventListener("click", async () => {
   await saveProjectAs();
 });
 
+saveProjectOnlineBtn.addEventListener("click", async () => {
+  await saveProjectOnline();
+});
+
+downloadProjectCopyBtn.addEventListener("click", () => {
+  downloadLocalProjectCopy();
+});
+
 addSheetBtn.addEventListener("click", () => {
   addWorkbookSheet();
 });
@@ -3848,6 +3920,7 @@ async function initApp() {
     state.fileSystem.projectFileHandle = await readPersistedProjectFileHandle();
     if (state.fileSystem.projectFileHandle?.name) {
       setCurrentProjectName(state.fileSystem.projectFileHandle.name);
+      updateSyncStatus({ file: `Файл: ${state.fileSystem.projectFileHandle.name}` });
     }
   }
 
