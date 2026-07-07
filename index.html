@@ -22,6 +22,7 @@
       <button id="saveProjectAs">Сохранить проект как...</button>
       <button id="saveProjectOnline">Сохранить онлайн</button>
       <button id="downloadProjectCopy">Скачать JSON</button>
+      <button id="changeHistory">История изменений</button>
       <button id="crossImport">Заполнить Кроссы</button>
       <button id="undoAction">Отменить</button>
       <button id="redoAction">Вернуть</button>
@@ -221,6 +222,24 @@
 
       <div class="modal-actions modal-actions--end">
         <button id="crossImportApply" type="button" class="primary">Записать в "Кроссы"</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="changeHistoryModal" class="modal-backdrop" hidden>
+    <div class="modal-card modal-card--wide" role="dialog" aria-modal="true" aria-labelledby="changeHistoryTitle">
+      <div class="modal-card__header">
+        <div>
+          <div id="changeHistoryTitle" class="modal-card__title">История изменений</div>
+          <div id="changeHistorySubtitle" class="modal-card__subtitle">Здесь показаны добавленные, удаленные и измененные данные.</div>
+        </div>
+        <button id="changeHistoryClose" type="button" aria-label="Закрыть">Закрыть</button>
+      </div>
+
+      <div id="changeHistoryList" class="change-history-list"></div>
+
+      <div class="modal-actions modal-actions--end">
+        <button id="changeHistoryRefresh" type="button">Обновить</button>
       </div>
     </div>
   </div>

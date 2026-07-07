@@ -16,6 +16,7 @@ const saveProjectBtn = document.getElementById("saveProject");
 const saveProjectAsBtn = document.getElementById("saveProjectAs");
 const saveProjectOnlineBtn = document.getElementById("saveProjectOnline");
 const downloadProjectCopyBtn = document.getElementById("downloadProjectCopy");
+const changeHistoryBtn = document.getElementById("changeHistory");
 const openProjectFileInputEl = document.getElementById("openProjectFile");
 const sheetTabsListEl = document.getElementById("sheetTabsList");
 const addSheetBtn = document.getElementById("addSheet");
@@ -60,6 +61,11 @@ const crossImportFetchBtn = document.getElementById("crossImportFetch");
 const crossImportExtractBtn = document.getElementById("crossImportExtract");
 const crossImportApplyBtn = document.getElementById("crossImportApply");
 const crossImportCloseBtn = document.getElementById("crossImportClose");
+const changeHistoryModalEl = document.getElementById("changeHistoryModal");
+const changeHistorySubtitleEl = document.getElementById("changeHistorySubtitle");
+const changeHistoryListEl = document.getElementById("changeHistoryList");
+const changeHistoryCloseBtn = document.getElementById("changeHistoryClose");
+const changeHistoryRefreshBtn = document.getElementById("changeHistoryRefresh");
 const buildBadgeEl = document.getElementById("buildBadge");
 const syncStatusEl = document.getElementById("syncStatus");
 const APP_BUILD_ID = "table 2026-03-24 00:35";
@@ -473,6 +479,12 @@ function setCrossEditModalVisibility(isOpen) {
   crossEditModalEl.hidden = !isOpen;
   crossEditModalEl.setAttribute("aria-hidden", isOpen ? "false" : "true");
   crossEditModalEl.style.display = isOpen ? "flex" : "none";
+}
+
+function setChangeHistoryModalVisibility(isOpen) {
+  changeHistoryModalEl.hidden = !isOpen;
+  changeHistoryModalEl.setAttribute("aria-hidden", isOpen ? "false" : "true");
+  changeHistoryModalEl.style.display = isOpen ? "flex" : "none";
 }
 
 function setCrossImportTarget(td) {
@@ -1212,6 +1224,104 @@ function extractChangeHistory(payload) {
 
 function restoreChangeHistoryFromPayload(payload) {
   state.changeHistory = extractChangeHistory(payload);
+}
+
+function formatChangeHistoryDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Дата неизвестна";
+
+  return date.toLocaleString("ru-RU", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function formatChangeValue(value) {
+  const text = String(value ?? "");
+  return text === "" ? "пусто" : text;
+}
+
+function renderChangeHistory() {
+  if (!changeHistoryListEl) return;
+
+  const entries = state.changeHistory.slice(-200).reverse();
+  changeHistoryListEl.innerHTML = "";
+
+  if (changeHistorySubtitleEl) {
+    changeHistorySubtitleEl.textContent = state.changeHistory.length
+      ? `Записей: ${state.changeHistory.length}. Показаны последние ${entries.length}.`
+      : "Изменений пока нет.";
+  }
+
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "change-history-empty";
+    empty.textContent = "История появится после добавления, удаления или изменения данных в ячейках.";
+    changeHistoryListEl.appendChild(empty);
+    return;
+  }
+
+  entries.forEach((entry) => {
+    const item = document.createElement("section");
+    item.className = "change-history-item";
+
+    const header = document.createElement("div");
+    header.className = "change-history-item__header";
+
+    const title = document.createElement("div");
+    title.className = "change-history-item__title";
+    title.textContent = `${formatChangeHistoryDate(entry.changedAt)} - ${entry.sheetName || "Лист"}`;
+
+    const count = document.createElement("div");
+    count.className = "change-history-item__count";
+    count.textContent = `Изменений: ${entry.changes.length}`;
+
+    header.append(title, count);
+    item.appendChild(header);
+
+    const list = document.createElement("div");
+    list.className = "change-history-changes";
+
+    entry.changes.slice(0, 20).forEach((change) => {
+      const row = document.createElement("div");
+      row.className = "change-history-change";
+      row.classList.add(`change-history-change--${change.action || "changed"}`);
+
+      const place = document.createElement("div");
+      place.className = "change-history-change__place";
+      place.textContent = `${change.actionLabel || "изменено"}: ${change.cell || ""} ${change.columnName ? `(${change.columnName})` : ""}`;
+
+      const values = document.createElement("div");
+      values.className = "change-history-change__values";
+      values.textContent = `${formatChangeValue(change.before)} -> ${formatChangeValue(change.after)}`;
+
+      row.append(place, values);
+      list.appendChild(row);
+    });
+
+    if (entry.changes.length > 20) {
+      const more = document.createElement("div");
+      more.className = "change-history-more";
+      more.textContent = `Еще ${entry.changes.length - 20} изменений есть в JSON-файле.`;
+      list.appendChild(more);
+    }
+
+    item.appendChild(list);
+    changeHistoryListEl.appendChild(item);
+  });
+}
+
+function openChangeHistoryModal() {
+  renderChangeHistory();
+  setChangeHistoryModalVisibility(true);
+  setStatus("Открыта история изменений.");
+}
+
+function closeChangeHistoryModal() {
+  setChangeHistoryModalVisibility(false);
 }
 
 function updateHistoryButtons() {
@@ -3902,6 +4012,10 @@ downloadProjectCopyBtn.addEventListener("click", () => {
   downloadLocalProjectCopy();
 });
 
+changeHistoryBtn.addEventListener("click", () => {
+  openChangeHistoryModal();
+});
+
 addSheetBtn.addEventListener("click", () => {
   addWorkbookSheet();
 });
@@ -3948,6 +4062,21 @@ crossImportCloseBtn.addEventListener("click", (e) => {
   e.preventDefault();
   e.stopPropagation();
   closeCrossImportModal();
+});
+
+changeHistoryCloseBtn.addEventListener("click", () => {
+  closeChangeHistoryModal();
+});
+
+changeHistoryRefreshBtn.addEventListener("click", () => {
+  renderChangeHistory();
+});
+
+changeHistoryModalEl.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeChangeHistoryModal();
+  }
 });
 
 crossEditTextareaEl.addEventListener("keydown", (e) => {
@@ -4089,6 +4218,7 @@ async function initApp() {
   pushHistorySnapshot();
   updateHistoryButtons();
   setCrossImportModalVisibility(false);
+  setChangeHistoryModalVisibility(false);
 }
 
 window.addEventListener("resize", () => {
