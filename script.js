@@ -85,9 +85,10 @@ const CENTER_ALIGNED_COLUMNS = new Set([
 ]);
 const FIXED_ROW_COUNT = 1500;
 const TABLE_STORAGE_KEY = "oil-filters-table-v1";
-const TABLE_EXPORT_VERSION = 5;
+const TABLE_EXPORT_VERSION = 6;
 const DEFAULT_SHEET_NAME = "Лист 1";
 const TABLE_EXPORT_FILE_NAME = "oil-filters-table.json";
+const CHANGE_HISTORY_LIMIT = 1000;
 const FILE_SYSTEM_DB_NAME = "oil-filters-table-fs";
 const FILE_SYSTEM_STORE_NAME = "handles";
 const PROJECT_FILE_HANDLE_KEY = "project-file-handle";
@@ -184,6 +185,7 @@ const state = {
   clipboard: null,
   history: [],
   future: [],
+  changeHistory: [],
   isRestoringHistory: false,
   editingCell: null,
   fillDragState: {
@@ -1074,6 +1076,144 @@ function getHistorySignature(snapshot) {
   return JSON.stringify(snapshot);
 }
 
+function columnIndexToLabel(index) {
+  let value = Math.max(0, Number(index) || 0) + 1;
+  let label = "";
+
+  while (value > 0) {
+    value -= 1;
+    label = String.fromCharCode(65 + (value % 26)) + label;
+    value = Math.floor(value / 26);
+  }
+
+  return label;
+}
+
+function createSnapshotValueMap(snapshot) {
+  const values = new Map();
+  const data = snapshot?.data;
+  if (!data || typeof data !== "object") return values;
+
+  Object.entries(data).forEach(([rowIndex, row]) => {
+    const r = Number(rowIndex);
+    if (!Number.isInteger(r) || r < 0 || !Array.isArray(row)) return;
+
+    row.slice(0, state.cols).forEach((value, c) => {
+      const normalized = String(value ?? "");
+      if (normalized === "") return;
+      values.set(cellKey(r, c), normalized);
+    });
+  });
+
+  return values;
+}
+
+function createCellChangeRecord(keyItem, previousValue, nextValue) {
+  const [row, column] = keyItem.split(":").map(Number);
+  const before = String(previousValue ?? "");
+  const after = String(nextValue ?? "");
+  const action = before === "" ? "added" : after === "" ? "deleted" : "changed";
+  const actionLabelByAction = {
+    added: "добавлено",
+    deleted: "удалено",
+    changed: "изменено"
+  };
+
+  return {
+    action,
+    actionLabel: actionLabelByAction[action],
+    cell: `${columnIndexToLabel(column)}${row + 1}`,
+    row: row + 1,
+    column: columnIndexToLabel(column),
+    columnName: COLUMN_HEADERS[column] || "",
+    before,
+    after
+  };
+}
+
+function createDataChangeHistoryEntry(previousSnapshot, nextSnapshot) {
+  const previousValues = createSnapshotValueMap(previousSnapshot);
+  const nextValues = createSnapshotValueMap(nextSnapshot);
+  const keys = new Set([...previousValues.keys(), ...nextValues.keys()]);
+  const changes = [];
+
+  keys.forEach((keyItem) => {
+    const before = previousValues.get(keyItem) || "";
+    const after = nextValues.get(keyItem) || "";
+    if (before === after) return;
+    changes.push(createCellChangeRecord(keyItem, before, after));
+  });
+
+  if (!changes.length) return null;
+
+  const activeSheet = getActiveSheet();
+  return {
+    changedAt: new Date().toISOString(),
+    sheetId: activeSheet?.id || state.workbook.activeSheetId || "",
+    sheetName: normalizeSheetName(activeSheet?.name || DEFAULT_SHEET_NAME),
+    changes
+  };
+}
+
+function appendDataChangeHistory(previousSnapshot, nextSnapshot) {
+  const entry = createDataChangeHistoryEntry(previousSnapshot, nextSnapshot);
+  if (!entry) return;
+
+  state.changeHistory.push(entry);
+  if (state.changeHistory.length > CHANGE_HISTORY_LIMIT) {
+    state.changeHistory.splice(0, state.changeHistory.length - CHANGE_HISTORY_LIMIT);
+  }
+
+  try {
+    localStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify(createPortableTablePayload()));
+    updateSyncStatus({ browser: "Браузер: сохранено" });
+  } catch {
+    updateSyncStatus({ browser: "Браузер: ошибка" });
+  }
+}
+
+function normalizeChangeHistoryEntry(entry) {
+  if (!entry || typeof entry !== "object" || !Array.isArray(entry.changes)) return null;
+  const actionLabelByAction = {
+    added: "добавлено",
+    deleted: "удалено",
+    changed: "изменено"
+  };
+
+  return {
+    changedAt: String(entry.changedAt || ""),
+    sheetId: String(entry.sheetId || ""),
+    sheetName: String(entry.sheetName || ""),
+    changes: entry.changes
+      .filter((change) => change && typeof change === "object")
+      .map((change) => {
+        const action = String(change.action || "");
+        return {
+          action,
+          actionLabel: String(change.actionLabel || actionLabelByAction[action] || ""),
+          cell: String(change.cell || ""),
+          row: Number(change.row) || 0,
+          column: String(change.column || ""),
+          columnName: String(change.columnName || ""),
+          before: String(change.before ?? ""),
+          after: String(change.after ?? "")
+        };
+      })
+  };
+}
+
+function extractChangeHistory(payload) {
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.changeHistory)) return [];
+  return payload.changeHistory
+    .map(normalizeChangeHistoryEntry)
+    .filter(Boolean)
+    .slice(-CHANGE_HISTORY_LIMIT);
+}
+
+function restoreChangeHistoryFromPayload(payload) {
+  state.changeHistory = extractChangeHistory(payload);
+}
+
 function updateHistoryButtons() {
   undoActionBtn.disabled = state.history.length <= 1;
   redoActionBtn.disabled = state.future.length === 0;
@@ -1090,6 +1230,7 @@ function pushHistorySnapshot() {
     return;
   }
 
+  if (lastEntry) appendDataChangeHistory(lastEntry.snapshot, snapshot);
   state.history.push({ snapshot, signature });
   if (state.history.length > 100) state.history.shift();
   state.future = [];
@@ -1407,7 +1548,8 @@ function serializeCurrentProject() {
     version: TABLE_EXPORT_VERSION,
     savedAt: new Date().toISOString(),
     columns: COLUMN_HEADERS,
-    workbook
+    workbook,
+    changeHistory: state.changeHistory.slice(-CHANGE_HISTORY_LIMIT)
   };
 }
 
@@ -1592,6 +1734,7 @@ async function restoreProjectFromPayload(payload) {
   const restored = applyStoredTablePayload(payload);
   if (!restored) return false;
 
+  restoreChangeHistoryFromPayload(payload);
   saveTableData(false);
   resetHistoryState();
   return true;
@@ -2080,6 +2223,7 @@ async function loadTableDataFromCloud() {
 
     const loaded = applyStoredTablePayload(payload);
     if (loaded) {
+      restoreChangeHistoryFromPayload(payload);
       saveTableData(false, { syncCloud: false, syncFile: false });
       updateSyncStatus({ cloud: "Онлайн: загружено" });
     }
@@ -2193,8 +2337,12 @@ function loadTableData() {
   try {
     const raw = localStorage.getItem(TABLE_STORAGE_KEY);
     if (!raw) return false;
-    const loaded = applyStoredTablePayload(JSON.parse(raw));
-    if (loaded) saveTableData(false, { syncCloud: false, syncFile: false });
+    const payload = JSON.parse(raw);
+    const loaded = applyStoredTablePayload(payload);
+    if (loaded) {
+      restoreChangeHistoryFromPayload(payload);
+      saveTableData(false, { syncCloud: false, syncFile: false });
+    }
     return loaded;
   } catch {
     return false;
