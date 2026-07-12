@@ -14,6 +14,7 @@ const removeRowBtn = document.getElementById("removeRow");
 const openProjectBtn = document.getElementById("openProject");
 const saveProjectBtn = document.getElementById("saveProject");
 const saveProjectAsBtn = document.getElementById("saveProjectAs");
+const loadProjectOnlineBtn = document.getElementById("loadProjectOnline");
 const saveProjectOnlineBtn = document.getElementById("saveProjectOnline");
 const downloadProjectCopyBtn = document.getElementById("downloadProjectCopy");
 const changeHistoryBtn = document.getElementById("changeHistory");
@@ -68,6 +69,11 @@ const changeHistoryCloseBtn = document.getElementById("changeHistoryClose");
 const changeHistoryRefreshBtn = document.getElementById("changeHistoryRefresh");
 const buildBadgeEl = document.getElementById("buildBadge");
 const syncStatusEl = document.getElementById("syncStatus");
+const onlineConfirmModalEl = document.getElementById("onlineConfirmModal");
+const onlineConfirmTitleEl = document.getElementById("onlineConfirmTitle");
+const onlineConfirmMessageEl = document.getElementById("onlineConfirmMessage");
+const onlineConfirmCancelBtn = document.getElementById("onlineConfirmCancel");
+const onlineConfirmApplyBtn = document.getElementById("onlineConfirmApply");
 const APP_BUILD_ID = "table 2026-03-24 00:35";
 const COLUMN_HEADERS = [
   "Бренд",
@@ -94,7 +100,7 @@ const TABLE_STORAGE_KEY = "oil-filters-table-v1";
 const TABLE_EXPORT_VERSION = 6;
 const DEFAULT_SHEET_NAME = "Лист 1";
 const TABLE_EXPORT_FILE_NAME = "oil-filters-table.json";
-const CHANGE_HISTORY_LIMIT = 1000;
+const CHANGE_HISTORY_LIMIT = 50;
 const FILE_SYSTEM_DB_NAME = "oil-filters-table-fs";
 const FILE_SYSTEM_STORE_NAME = "handles";
 const PROJECT_FILE_HANDLE_KEY = "project-file-handle";
@@ -103,7 +109,6 @@ const SUPABASE_URL = "https://qtfrzbszxjcnmkczwscm.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Qx59xVDsvNYV8ybOwCmLNA_3aSq_nLN";
 const SUPABASE_TABLE_NAME = "table_projects";
 const SUPABASE_PROJECT_ID = "main";
-const SUPABASE_SAVE_DELAY_MS = 1200;
 const LOCAL_FILE_SAVE_DELAY_MS = 1200;
 const PROJECT_FILE_PICKER_TYPES = [
   {
@@ -240,7 +245,6 @@ const state = {
     nextSheetId: 1
   },
   cloud: {
-    saveTimer: null,
     isSaving: false,
     lastSaveError: ""
   },
@@ -252,7 +256,7 @@ const state = {
   syncStatus: {
     browser: "Браузер: ожидает",
     file: "Файл: не выбран",
-    cloud: "Онлайн: ожидает"
+    cloud: "Онлайн: по запросу"
   }
 };
 
@@ -485,6 +489,38 @@ function setChangeHistoryModalVisibility(isOpen) {
   changeHistoryModalEl.hidden = !isOpen;
   changeHistoryModalEl.setAttribute("aria-hidden", isOpen ? "false" : "true");
   changeHistoryModalEl.style.display = isOpen ? "flex" : "none";
+}
+
+let onlineConfirmResolver = null;
+
+function closeOnlineConfirmModal(confirmed = false) {
+  onlineConfirmModalEl.hidden = true;
+  onlineConfirmModalEl.setAttribute("aria-hidden", "true");
+  onlineConfirmModalEl.style.display = "none";
+  const resolver = onlineConfirmResolver;
+  onlineConfirmResolver = null;
+  if (resolver) resolver(confirmed);
+}
+
+function confirmOnlineOperation(operation) {
+  if (onlineConfirmResolver) closeOnlineConfirmModal(false);
+
+  const isLoad = operation === "load";
+  onlineConfirmTitleEl.textContent = isLoad
+    ? "Загрузить данные онлайн?"
+    : "Сохранить данные онлайн?";
+  onlineConfirmMessageEl.textContent = isLoad
+    ? "Текущие данные таблицы будут заменены данными из онлайн-хранилища."
+    : "Текущие данные таблицы будут отправлены в онлайн-хранилище.";
+  onlineConfirmApplyBtn.textContent = isLoad ? "Загрузить онлайн" : "Сохранить онлайн";
+  onlineConfirmModalEl.hidden = false;
+  onlineConfirmModalEl.setAttribute("aria-hidden", "false");
+  onlineConfirmModalEl.style.display = "flex";
+  window.setTimeout(() => onlineConfirmApplyBtn.focus(), 0);
+
+  return new Promise((resolve) => {
+    onlineConfirmResolver = resolve;
+  });
 }
 
 function setCrossImportTarget(td) {
@@ -1247,7 +1283,10 @@ function formatChangeValue(value) {
 function renderChangeHistory() {
   if (!changeHistoryListEl) return;
 
-  const entries = state.changeHistory.slice(-200).reverse();
+  if (state.changeHistory.length > CHANGE_HISTORY_LIMIT) {
+    state.changeHistory.splice(0, state.changeHistory.length - CHANGE_HISTORY_LIMIT);
+  }
+  const entries = state.changeHistory.slice(-CHANGE_HISTORY_LIMIT).reverse();
   changeHistoryListEl.innerHTML = "";
 
   if (changeHistorySubtitleEl) {
@@ -1901,10 +1940,7 @@ async function saveProjectToFileHandle(fileHandle) {
     setCurrentProjectName(fileHandle.name);
     await persistProjectFileHandle(fileHandle);
     updateSyncStatus({ file: `Файл: ${fileHandle.name}` });
-    const cloudSaved = await flushCloudSave();
-    setStatus(cloudSaved
-      ? `Проект "${fileHandle.name}" сохранен локально и онлайн.`
-      : `Проект "${fileHandle.name}" сохранен локально. Онлайн-сохранение пока не удалось.`);
+    setStatus(`Проект "${fileHandle.name}" сохранен локально.`);
     return true;
   } catch {
     updateSyncStatus({ file: "Файл: ошибка записи" });
@@ -2062,7 +2098,6 @@ async function openProjectFromFileHandle(fileHandle) {
     }
 
     queueProjectFileSave();
-    await flushCloudSave();
     return true;
   } catch {
     setStatus("Не удалось открыть файл проекта.");
@@ -2252,22 +2287,9 @@ function getSupabaseUpsertUrl() {
   return `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE_NAME}`;
 }
 
-function queueCloudSave() {
-  if (state.isRestoringHistory) return;
-
-  if (state.cloud.saveTimer) {
-    clearTimeout(state.cloud.saveTimer);
-  }
-
-  state.cloud.saveTimer = window.setTimeout(() => {
-    state.cloud.saveTimer = null;
-    saveTableDataToCloud();
-  }, SUPABASE_SAVE_DELAY_MS);
-}
-
 async function saveTableDataToCloud(payload = createPortableTablePayload()) {
   if (state.cloud.isSaving) {
-    queueCloudSave();
+    setStatus("Онлайн-сохранение уже выполняется.");
     return false;
   }
 
@@ -2304,11 +2326,6 @@ async function saveTableDataToCloud(payload = createPortableTablePayload()) {
 }
 
 async function flushCloudSave(payload = createPortableTablePayload()) {
-  if (state.cloud.saveTimer) {
-    clearTimeout(state.cloud.saveTimer);
-    state.cloud.saveTimer = null;
-  }
-
   return saveTableDataToCloud(payload);
 }
 
@@ -2334,7 +2351,7 @@ async function loadTableDataFromCloud() {
     const loaded = applyStoredTablePayload(payload);
     if (loaded) {
       restoreChangeHistoryFromPayload(payload);
-      saveTableData(false, { syncCloud: false, syncFile: false });
+      saveTableData(false, { syncFile: false });
       updateSyncStatus({ cloud: "Онлайн: загружено" });
     }
     return loaded;
@@ -2346,16 +2363,14 @@ async function loadTableDataFromCloud() {
 }
 
 function saveTableData(showStatus = false, options = {}) {
-  const { syncCloud = true, syncFile = true } = options;
+  const { syncFile = true } = options;
 
   try {
     localStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify(createPortableTablePayload()));
     updateSyncStatus({
       browser: "Браузер: сохранено",
-      ...(syncCloud ? { cloud: "Онлайн: ожидает" } : {}),
       ...(syncFile && state.fileSystem.projectFileHandle ? { file: "Файл: ожидает" } : {})
     });
-    if (syncCloud) queueCloudSave();
     if (syncFile) queueProjectFileSave();
     if (showStatus) setStatus("Таблица сохранена.");
     return true;
@@ -2451,7 +2466,7 @@ function loadTableData() {
     const loaded = applyStoredTablePayload(payload);
     if (loaded) {
       restoreChangeHistoryFromPayload(payload);
-      saveTableData(false, { syncCloud: false, syncFile: false });
+      saveTableData(false, { syncFile: false });
     }
     return loaded;
   } catch {
@@ -2499,17 +2514,24 @@ function downloadProjectFile(fileName = TABLE_EXPORT_FILE_NAME) {
 async function saveProjectOnline() {
   closeCellEditor();
   saveActiveSheetSnapshot();
-  if (!saveTableData(false, { syncCloud: false, syncFile: false })) return false;
+  if (!saveTableData(false, { syncFile: false })) return false;
 
   const saved = await flushCloudSave();
   setStatus(saved ? "Данные сохранены онлайн." : "Онлайн-сохранение пока не удалось.");
   return saved;
 }
 
+async function loadProjectOnline() {
+  closeCellEditor();
+  const loaded = await loadTableDataFromCloud();
+  setStatus(loaded ? "Онлайн-данные таблицы загружены." : "Не удалось загрузить онлайн-данные.");
+  return loaded;
+}
+
 function downloadLocalProjectCopy() {
   closeCellEditor();
   saveActiveSheetSnapshot();
-  if (!saveTableData(false, { syncCloud: false, syncFile: false })) return false;
+  if (!saveTableData(false, { syncFile: false })) return false;
   return downloadProjectFile(getCurrentProjectFileName({ allowDefault: true }));
 }
 
@@ -4004,8 +4026,35 @@ saveProjectAsBtn.addEventListener("click", async () => {
   await saveProjectAs();
 });
 
+loadProjectOnlineBtn.addEventListener("click", async () => {
+  if (!await confirmOnlineOperation("load")) {
+    setStatus("Онлайн-загрузка отменена.");
+    return;
+  }
+  await loadProjectOnline();
+});
+
 saveProjectOnlineBtn.addEventListener("click", async () => {
+  if (!await confirmOnlineOperation("save")) {
+    setStatus("Онлайн-сохранение отменено.");
+    return;
+  }
   await saveProjectOnline();
+});
+
+onlineConfirmCancelBtn.addEventListener("click", () => {
+  closeOnlineConfirmModal(false);
+});
+
+onlineConfirmApplyBtn.addEventListener("click", () => {
+  closeOnlineConfirmModal(true);
+});
+
+onlineConfirmModalEl.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeOnlineConfirmModal(false);
+  }
 });
 
 downloadProjectCopyBtn.addEventListener("click", () => {
@@ -4201,16 +4250,15 @@ async function initApp() {
     }
   }
 
-  if (await loadTableDataFromCloud()) {
-    setStatus("Онлайн-данные таблицы загружены.");
-  } else if (loadTableData()) {
-    setStatus("Локальные данные таблицы загружены. Отправляю копию онлайн...");
-    queueCloudSave();
+  if (loadTableData()) {
+    setStatus("Локальные данные таблицы загружены.");
   } else {
     buildTable();
     wrapCurrentTableInWorkbook();
-    queueCloudSave();
+    setStatus("Создана новая локальная таблица.");
   }
+
+  updateSyncStatus({ cloud: "Онлайн: по запросу" });
 
   ensureWorkbookInitialized();
   saveActiveSheetSnapshot();

@@ -20,6 +20,7 @@
       <button id="openProject">Открыть проект</button>
       <button id="saveProject">Сохранить проект</button>
       <button id="saveProjectAs">Сохранить проект как...</button>
+      <button id="loadProjectOnline">Загрузить онлайн</button>
       <button id="saveProjectOnline">Сохранить онлайн</button>
       <button id="downloadProjectCopy">Скачать JSON</button>
       <button id="changeHistory">История изменений</button>
@@ -29,7 +30,7 @@
       <button id="merge" class="primary">Объединить выделение</button>
       <button id="unmerge">Разъединить всё</button>
       <span id="buildBadge" class="build-badge"></span>
-      <span id="syncStatus" class="sync-status" aria-live="polite">Браузер: ожидает | Файл: не выбран | Онлайн: ожидает</span>
+      <span id="syncStatus" class="sync-status" aria-live="polite">Браузер: ожидает | Файл: не выбран | Онлайн: по запросу</span>
       <span class="hint">Фиксированная таблица на 7 столбцов, формулы: =A1+B1, =SUM(A1:B3), Ctrl+Z / Ctrl+Y для отмены и возврата действий. Проекты сохраняются в JSON вместе с историей добавленных и удаленных данных. Если браузер поддерживает File System Access API, повторное сохранение идёт в тот же файл без повторного выбора. В "Кроссы" правый клик открывает обычное меню браузера для вставки</span>
     </div>
     <input id="openProjectFile" type="file" accept=".json,application/json" hidden />
@@ -270,6 +271,22 @@
       <div class="modal-actions modal-actions--end">
         <button id="crossEditCancel" type="button">Отменить</button>
         <button id="crossEditSave" type="button" class="primary">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="onlineConfirmModal" class="modal-backdrop" hidden>
+    <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="onlineConfirmTitle" aria-describedby="onlineConfirmMessage">
+      <div class="modal-card__header">
+        <div>
+          <div id="onlineConfirmTitle" class="modal-card__title">Подтвердите операцию</div>
+          <div id="onlineConfirmMessage" class="modal-card__subtitle"></div>
+        </div>
+      </div>
+
+      <div class="modal-actions modal-actions--end">
+        <button id="onlineConfirmCancel" type="button">Отмена</button>
+        <button id="onlineConfirmApply" type="button" class="primary">Подтвердить</button>
       </div>
     </div>
   </div>
