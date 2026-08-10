@@ -84,6 +84,7 @@ const COLUMN_HEADERS = [
   "Автомобиль",
   "Диаметр резьбы"
 ];
+const BRAND_COL_INDEX = COLUMN_HEADERS.indexOf("Бренд");
 const ARTICLE_COL_INDEX = COLUMN_HEADERS.indexOf("Артикул");
 const QUANTITY_COL_INDEX = COLUMN_HEADERS.indexOf("Кол-во");
 const CROSS_COL_INDEX = COLUMN_HEADERS.indexOf("Кросы");
@@ -381,6 +382,7 @@ function createCell(r, c) {
   td.dataset.col = String(c);
   td.dataset.raw = "";
   td.spellcheck = false;
+  if (c === BRAND_COL_INDEX) td.classList.add("brand-col");
   if (CENTER_ALIGNED_COLUMNS.has(c)) td.classList.add("center-col");
   if (c === CROSS_COL_INDEX) td.classList.add("cross-col");
   return td;

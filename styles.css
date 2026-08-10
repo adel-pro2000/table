@@ -405,6 +405,11 @@ td.center-col {
   vertical-align: middle;
 }
 
+td.brand-col {
+  text-align: left;
+  vertical-align: middle;
+}
+
 .row-number {
   width: 52px;
   min-width: 52px;
