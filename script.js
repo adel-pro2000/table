@@ -1059,6 +1059,17 @@ function refreshTableSearch() {
   applyTableSearch();
 }
 
+function clearTableSearchState() {
+  TABLE_SEARCH_FIELDS.forEach((fieldConfig) => {
+    const emptyValues = createEmptyTableSearchValues(fieldConfig.key);
+    updateTableSearchQuery(fieldConfig.key, emptyValues);
+    updateTableSearchDraft(fieldConfig.key, emptyValues);
+    updateTableSearchMode(fieldConfig.key, DEFAULT_TABLE_SEARCH_MODE);
+    updateTableSearchDraftMode(fieldConfig.key, DEFAULT_TABLE_SEARCH_MODE);
+  });
+  clearTableSearchCache();
+}
+
 function hasActiveTableSearch() {
   return TABLE_SEARCH_FIELDS.some((fieldConfig) =>
     Boolean(state.tableSearch.fields[fieldConfig.key]?.normalizedQueries.length)
@@ -1608,6 +1619,7 @@ function switchToSheet(sheetId) {
   closeCellEditor();
   saveActiveSheetSnapshot();
   state.workbook.activeSheetId = targetSheet.id;
+  clearTableSearchState();
   applySheetSnapshot(targetSheet.snapshot);
   resetHistoryState();
   renderSheetTabs();
@@ -1628,6 +1640,7 @@ function addWorkbookSheet() {
   const sheetItem = createSheet(id, name);
   state.workbook.sheets.push(sheetItem);
   state.workbook.activeSheetId = id;
+  clearTableSearchState();
   applySheetSnapshot(sheetItem.snapshot);
   resetHistoryState();
   renderSheetTabs();
@@ -1666,6 +1679,7 @@ function deleteActiveWorkbookSheet() {
 
   const nextSheet = state.workbook.sheets[Math.max(0, activeIndex - 1)] || state.workbook.sheets[0];
   state.workbook.activeSheetId = nextSheet.id;
+  clearTableSearchState();
   applySheetSnapshot(nextSheet.snapshot);
   resetHistoryState();
   renderSheetTabs();
@@ -2223,6 +2237,7 @@ function applyWorkbookSnapshot(workbook) {
   state.workbook.sheets = workbook.sheets;
   state.workbook.activeSheetId = workbook.activeSheetId;
   state.workbook.nextSheetId = Math.max(1, Number(workbook.nextSheetId) || workbook.sheets.length + 1);
+  clearTableSearchState();
 
   const activeSheet = getActiveSheet();
   applySheetSnapshot(activeSheet?.snapshot || createEmptySheetSnapshot());
@@ -2235,6 +2250,7 @@ function wrapCurrentTableInWorkbook(name = DEFAULT_SHEET_NAME) {
   const snapshot = getStructuredTableDataSnapshot();
   state.workbook.sheets = [createSheet(id, name, snapshot)];
   state.workbook.activeSheetId = id;
+  clearTableSearchState();
   renderSheetTabs();
 }
 
