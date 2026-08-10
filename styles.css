@@ -102,6 +102,16 @@ body.table-locked .table-wrap td {
   cursor: default;
 }
 
+body.table-locked td[data-col="2"] {
+  cursor: pointer;
+  background: #fffaf0;
+}
+
+body.table-locked td[data-col="2"]:hover {
+  background: #fff0c7;
+  box-shadow: inset 0 0 0 2px #d69e2e;
+}
+
 body.table-locked .fill-handle,
 body.table-locked .row-controls {
   display: none !important;
@@ -674,6 +684,47 @@ td.hidden {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.4;
+}
+
+.quantity-adjust-card {
+  width: min(480px, 100%);
+}
+
+.quantity-adjust-current {
+  padding: 14px;
+  border: 1px solid #c9d3e4;
+  border-radius: 10px;
+  background: #f8fbff;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.quantity-adjust-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.quantity-mode-button.is-active:first-child {
+  color: #fff;
+  background: #1f7a53;
+  border-color: #1f7a53;
+}
+
+.quantity-mode-button.is-active:last-child {
+  color: #fff;
+  background: #b83232;
+  border-color: #b83232;
+}
+
+.quantity-adjust-error {
+  padding: 10px 12px;
+  border: 1px solid #e0a6a6;
+  border-radius: 10px;
+  background: #fff0f0;
+  color: #8b1f1f;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .change-history-list {

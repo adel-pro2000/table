@@ -293,6 +293,34 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260810-admin-lock"></script>
+  <div id="quantityAdjustModal" class="modal-backdrop" hidden aria-hidden="true">
+    <div class="modal-card quantity-adjust-card" role="dialog" aria-modal="true" aria-labelledby="quantityAdjustTitle">
+      <div class="modal-card__header">
+        <div>
+          <div id="quantityAdjustTitle" class="modal-card__title">Изменить количество товара</div>
+          <div id="quantityAdjustProduct" class="modal-card__subtitle"></div>
+        </div>
+        <button id="quantityAdjustClose" type="button">Закрыть</button>
+      </div>
+
+      <div id="quantityAdjustCurrent" class="quantity-adjust-current"></div>
+      <div class="quantity-adjust-modes" role="group" aria-label="Тип изменения количества">
+        <button id="quantityModeIncrease" class="quantity-mode-button is-active" type="button">+ Добавить</button>
+        <button id="quantityModeDecrease" class="quantity-mode-button" type="button">− Убавить</button>
+      </div>
+      <label class="modal-field">
+        <span id="quantityAdjustLabel">Количество для добавления</span>
+        <input id="quantityAdjustAmount" type="number" min="1" step="1" value="1" inputmode="numeric" />
+      </label>
+      <div id="quantityAdjustError" class="quantity-adjust-error" role="alert" hidden></div>
+
+      <div class="modal-actions modal-actions--end">
+        <button id="quantityAdjustCancel" type="button">Отмена</button>
+        <button id="quantityAdjustApply" type="button" class="primary">Добавить</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js?v=20260810-quantity-cell"></script>
 </body>
 </html>

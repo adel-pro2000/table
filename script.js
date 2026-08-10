@@ -94,7 +94,18 @@ const onlineConfirmTitleEl = document.getElementById("onlineConfirmTitle");
 const onlineConfirmMessageEl = document.getElementById("onlineConfirmMessage");
 const onlineConfirmCancelBtn = document.getElementById("onlineConfirmCancel");
 const onlineConfirmApplyBtn = document.getElementById("onlineConfirmApply");
-const APP_BUILD_ID = "table 2026-08-10 admin-lock";
+const quantityAdjustModalEl = document.getElementById("quantityAdjustModal");
+const quantityAdjustProductEl = document.getElementById("quantityAdjustProduct");
+const quantityAdjustCurrentEl = document.getElementById("quantityAdjustCurrent");
+const quantityAdjustLabelEl = document.getElementById("quantityAdjustLabel");
+const quantityAdjustAmountEl = document.getElementById("quantityAdjustAmount");
+const quantityAdjustErrorEl = document.getElementById("quantityAdjustError");
+const quantityModeIncreaseBtn = document.getElementById("quantityModeIncrease");
+const quantityModeDecreaseBtn = document.getElementById("quantityModeDecrease");
+const quantityAdjustCloseBtn = document.getElementById("quantityAdjustClose");
+const quantityAdjustCancelBtn = document.getElementById("quantityAdjustCancel");
+const quantityAdjustApplyBtn = document.getElementById("quantityAdjustApply");
+const APP_BUILD_ID = "table 2026-08-10 quantity-cell";
 const COLUMN_HEADERS = [
   "Бренд",
   "Артикул",
@@ -237,6 +248,10 @@ const state = {
   crossEdit: {
     isOpen: false,
     target: null
+  },
+  quantityAdjust: {
+    mode: "increase",
+    row: null
   },
   rowHover: {
     row: null,
@@ -561,6 +576,87 @@ function setChangeHistoryModalVisibility(isOpen) {
   changeHistoryModalEl.hidden = !isOpen;
   changeHistoryModalEl.setAttribute("aria-hidden", isOpen ? "false" : "true");
   changeHistoryModalEl.style.display = isOpen ? "flex" : "none";
+}
+
+function setQuantityAdjustModalVisibility(isOpen) {
+  quantityAdjustModalEl.hidden = !isOpen;
+  quantityAdjustModalEl.setAttribute("aria-hidden", isOpen ? "false" : "true");
+}
+
+function setQuantityAdjustMode(mode) {
+  const isIncrease = mode !== "decrease";
+  state.quantityAdjust.mode = isIncrease ? "increase" : "decrease";
+  quantityModeIncreaseBtn.classList.toggle("is-active", isIncrease);
+  quantityModeDecreaseBtn.classList.toggle("is-active", !isIncrease);
+  quantityModeIncreaseBtn.setAttribute("aria-pressed", String(isIncrease));
+  quantityModeDecreaseBtn.setAttribute("aria-pressed", String(!isIncrease));
+  quantityAdjustLabelEl.textContent = isIncrease ? "Количество для добавления" : "Количество для списания";
+  quantityAdjustApplyBtn.textContent = isIncrease ? "Добавить" : "Убавить";
+  quantityAdjustErrorEl.hidden = true;
+}
+
+function closeQuantityAdjustModal() {
+  setQuantityAdjustModalVisibility(false);
+  state.quantityAdjust.row = null;
+  quantityAdjustErrorEl.hidden = true;
+  quantityAdjustErrorEl.textContent = "";
+}
+
+function getQuantityValueForRow(rowIndex) {
+  const rawValue = getRawValue(getCell(rowIndex, QUANTITY_COL_INDEX));
+  if (!rawValue.trim()) return 0;
+  return tryParseNumber(rawValue);
+}
+
+function openQuantityAdjustModal(rowIndex) {
+  const currentQuantity = getQuantityValueForRow(rowIndex);
+  if (currentQuantity === null) {
+    setStatus("Количество выбранного товара должно быть числом.");
+    return;
+  }
+
+  const brand = getRawValue(getCell(rowIndex, BRAND_COL_INDEX)) || "Без бренда";
+  const article = getRawValue(getCell(rowIndex, ARTICLE_COL_INDEX)) || "без артикула";
+  state.quantityAdjust.row = rowIndex;
+  quantityAdjustProductEl.textContent = `Строка ${rowIndex + 1}: ${brand} · ${article}`;
+  quantityAdjustCurrentEl.textContent = `Текущее количество: ${formatNumber(currentQuantity)}`;
+  quantityAdjustAmountEl.value = "1";
+  setQuantityAdjustMode("increase");
+  setQuantityAdjustModalVisibility(true);
+  setTimeout(() => {
+    quantityAdjustAmountEl.focus();
+    quantityAdjustAmountEl.select();
+  }, 0);
+}
+
+function applyQuantityAdjustment() {
+  const rowIndex = state.quantityAdjust.row;
+  const amount = Number(quantityAdjustAmountEl.value);
+  if (!Number.isInteger(amount) || amount <= 0) {
+    quantityAdjustErrorEl.textContent = "Введите целое количество больше нуля.";
+    quantityAdjustErrorEl.hidden = false;
+    return;
+  }
+
+  const currentQuantity = getQuantityValueForRow(rowIndex);
+  if (currentQuantity === null) {
+    quantityAdjustErrorEl.textContent = "Текущее количество не является числом.";
+    quantityAdjustErrorEl.hidden = false;
+    return;
+  }
+
+  const isIncrease = state.quantityAdjust.mode === "increase";
+  const nextQuantity = currentQuantity + (isIncrease ? amount : -amount);
+  if (nextQuantity < 0) {
+    quantityAdjustErrorEl.textContent = `Нельзя списать ${amount}: доступно ${formatNumber(currentQuantity)}.`;
+    quantityAdjustErrorEl.hidden = false;
+    return;
+  }
+
+  closeQuantityAdjustModal();
+  updateCellValue(rowIndex, QUANTITY_COL_INDEX, formatNumber(nextQuantity));
+  selectCell(getCell(rowIndex, QUANTITY_COL_INDEX));
+  setStatus(`Количество товара ${isIncrease ? "увеличено" : "уменьшено"} на ${amount}. Остаток: ${formatNumber(nextQuantity)}.`);
 }
 
 let onlineConfirmResolver = null;
@@ -1686,6 +1782,7 @@ function switchToSheet(sheetId) {
   const targetSheet = state.workbook.sheets.find((sheetItem) => sheetItem.id === sheetId);
   if (!targetSheet) return;
 
+  closeQuantityAdjustModal();
   closeCellEditor();
   saveActiveSheetSnapshot();
   state.workbook.activeSheetId = targetSheet.id;
@@ -3841,6 +3938,14 @@ document.addEventListener("mouseup", () => {
   state.selectionMouseButton = null;
 });
 
+sheet.addEventListener("click", (event) => {
+  if (state.isAdminMode) return;
+  const td = event.target.closest("td");
+  if (!td || td.classList.contains("hidden")) return;
+  if (Number(td.dataset.col) !== QUANTITY_COL_INDEX) return;
+  openQuantityAdjustModal(Number(td.dataset.row));
+});
+
 sheet.addEventListener("dblclick", (e) => {
   if (!requireAdminMode()) return;
   if (e.button !== 0) return;
@@ -4096,6 +4201,21 @@ bindButtonActivation(insertRowBelowMouseBtn, insertRowBelowTarget, { pointerDown
 bindButtonActivation(removeRowMouseBtn, deleteCurrentTargetRow, { pointerDown: true });
 
 adminModeToggleBtn.addEventListener("click", toggleAdminMode);
+quantityModeIncreaseBtn.addEventListener("click", () => setQuantityAdjustMode("increase"));
+quantityModeDecreaseBtn.addEventListener("click", () => setQuantityAdjustMode("decrease"));
+quantityAdjustApplyBtn.addEventListener("click", applyQuantityAdjustment);
+quantityAdjustCancelBtn.addEventListener("click", closeQuantityAdjustModal);
+quantityAdjustCloseBtn.addEventListener("click", closeQuantityAdjustModal);
+quantityAdjustModalEl.addEventListener("keydown", (event) => {
+  event.stopPropagation();
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeQuantityAdjustModal();
+  } else if (event.key === "Enter") {
+    event.preventDefault();
+    applyQuantityAdjustment();
+  }
+});
 
 document.getElementById("clearCells").addEventListener("click", () => {
   if (!state.selected.size) {
@@ -4369,6 +4489,7 @@ async function initApp() {
   pushHistorySnapshot();
   setCrossImportModalVisibility(false);
   setChangeHistoryModalVisibility(false);
+  setQuantityAdjustModalVisibility(false);
   updateAdminModeUI();
 }
 
