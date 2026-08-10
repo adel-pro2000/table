@@ -11,9 +11,11 @@
   />
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body class="table-locked">
   <div class="app">
     <div class="toolbar">
+      <button id="adminModeToggle" class="admin-mode-toggle" type="button" aria-pressed="false">🔒 Режим просмотра</button>
+      <span id="adminModeStatus" class="admin-mode-status" role="status">Изменения заблокированы</span>
       <button id="addRow">+ Строка</button>
       <button id="removeRow">- Строка</button>
       <button id="clearCells">Очистить ячейки</button>
@@ -291,6 +293,6 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260810-search-scope"></script>
+  <script src="script.js?v=20260810-admin-lock"></script>
 </body>
 </html>

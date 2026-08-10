@@ -61,9 +61,50 @@ button:hover {
 }
 
 button:disabled {
-  opacity: 0.55;
+  opacity: 0.38;
   cursor: not-allowed;
   transform: none;
+  filter: grayscale(1);
+  text-decoration: line-through;
+}
+
+.admin-mode-toggle {
+  font-weight: 800;
+  border-width: 2px;
+}
+
+.admin-mode-toggle.is-active {
+  color: #fff;
+  background: #9b2c2c;
+  border-color: #9b2c2c;
+}
+
+.admin-mode-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid #e0a6a6;
+  border-radius: 999px;
+  background: #fff0f0;
+  color: #8b1f1f;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.admin-mode-status.is-active {
+  border-color: #86b99c;
+  background: #eef9f2;
+  color: #176342;
+}
+
+body.table-locked .table-wrap td {
+  cursor: default;
+}
+
+body.table-locked .fill-handle,
+body.table-locked .row-controls {
+  display: none !important;
 }
 
 button.primary {

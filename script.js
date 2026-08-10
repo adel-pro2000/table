@@ -5,6 +5,8 @@ const emptySearchStateEl = document.getElementById("emptySearchState");
 const fillHandleEl = document.getElementById("fillHandle");
 const tableWrapEl = document.querySelector(".table-wrap");
 const tableTitleEl = document.getElementById("tableTitle");
+const adminModeToggleBtn = document.getElementById("adminModeToggle");
+const adminModeStatusEl = document.getElementById("adminModeStatus");
 const rowControlsEl = document.getElementById("rowControls");
 const insertRowAboveMouseBtn = document.getElementById("insertRowAboveMouse");
 const insertRowBelowMouseBtn = document.getElementById("insertRowBelowMouse");
@@ -26,6 +28,24 @@ const deleteSheetBtn = document.getElementById("deleteSheet");
 const crossImportBtn = document.getElementById("crossImport");
 const undoActionBtn = document.getElementById("undoAction");
 const redoActionBtn = document.getElementById("redoAction");
+const adminMutationControls = [
+  addRowBtn,
+  removeRowBtn,
+  document.getElementById("clearCells"),
+  openProjectBtn,
+  loadProjectOnlineBtn,
+  addSheetBtn,
+  renameSheetBtn,
+  deleteSheetBtn,
+  crossImportBtn,
+  undoActionBtn,
+  redoActionBtn,
+  document.getElementById("merge"),
+  document.getElementById("unmerge"),
+  insertRowAboveMouseBtn,
+  insertRowBelowMouseBtn,
+  removeRowMouseBtn
+].filter(Boolean);
 const partNumberSearchInputEl = document.getElementById("partNumberSearchInput");
 const partNumberSearchInputSecondaryEl = document.getElementById("partNumberSearchInputSecondary");
 const partNumberSearchApplyBtn = document.getElementById("partNumberSearchApply");
@@ -74,7 +94,7 @@ const onlineConfirmTitleEl = document.getElementById("onlineConfirmTitle");
 const onlineConfirmMessageEl = document.getElementById("onlineConfirmMessage");
 const onlineConfirmCancelBtn = document.getElementById("onlineConfirmCancel");
 const onlineConfirmApplyBtn = document.getElementById("onlineConfirmApply");
-const APP_BUILD_ID = "table 2026-03-24 00:35";
+const APP_BUILD_ID = "table 2026-08-10 admin-lock";
 const COLUMN_HEADERS = [
   "Бренд",
   "Артикул",
@@ -186,6 +206,7 @@ function createEmptyTableSearchValues(fieldKey) {
 }
 
 const state = {
+  isAdminMode: false,
   rows: FIXED_ROW_COUNT,
   cols: COLUMN_HEADERS.length,
   isSelecting: false,
@@ -260,6 +281,55 @@ const state = {
     cloud: "Онлайн: по запросу"
   }
 };
+
+function updateAdminModeUI() {
+  const isAdmin = state.isAdminMode;
+  document.body.classList.toggle("table-locked", !isAdmin);
+  adminMutationControls.forEach((button) => {
+    button.disabled = !isAdmin;
+    button.setAttribute("aria-disabled", String(!isAdmin));
+    if (!isAdmin) {
+      if (!("adminOriginalTitle" in button.dataset)) button.dataset.adminOriginalTitle = button.title;
+      button.title = "Доступно только в режиме администратора";
+    } else if ("adminOriginalTitle" in button.dataset) {
+      button.title = button.dataset.adminOriginalTitle;
+      delete button.dataset.adminOriginalTitle;
+    }
+  });
+  adminModeToggleBtn.classList.toggle("is-active", isAdmin);
+  adminModeToggleBtn.setAttribute("aria-pressed", String(isAdmin));
+  adminModeToggleBtn.textContent = isAdmin ? "🔓 Режим администратора" : "🔒 Режим просмотра";
+  adminModeStatusEl.classList.toggle("is-active", isAdmin);
+  adminModeStatusEl.textContent = isAdmin ? "Изменения разрешены" : "Изменения заблокированы";
+  rowControlsEl.hidden = !isAdmin || rowControlsEl.hidden;
+  if (!isAdmin) fillHandleEl.hidden = true;
+  updateHistoryButtons();
+  renderSheetTabs();
+}
+
+function requireAdminMode() {
+  if (state.isAdminMode) return true;
+  setStatus("Изменения заблокированы. Включите режим администратора.");
+  return false;
+}
+
+function toggleAdminMode() {
+  const enabling = !state.isAdminMode;
+  const confirmed = window.confirm(enabling
+    ? "Включить режим администратора и разрешить изменение таблицы?"
+    : "Выйти из режима администратора и снова заблокировать изменения?");
+  if (!confirmed) return;
+
+  if (!enabling) {
+    closeCellEditor();
+    closeCrossImportModal();
+    cancelCrossEditModal();
+    cancelFillDrag(false);
+  }
+  state.isAdminMode = enabling;
+  updateAdminModeUI();
+  setStatus(enabling ? "Режим администратора включен." : "Таблица заблокирована для изменений.");
+}
 
 const crossImportService = {
   async loadFromUrl(url) {
@@ -1377,8 +1447,8 @@ function closeChangeHistoryModal() {
 }
 
 function updateHistoryButtons() {
-  undoActionBtn.disabled = state.history.length <= 1;
-  redoActionBtn.disabled = state.future.length === 0;
+  undoActionBtn.disabled = !state.isAdminMode || state.history.length <= 1;
+  redoActionBtn.disabled = !state.isAdminMode || state.future.length === 0;
 }
 
 function pushHistorySnapshot() {
@@ -1586,7 +1656,7 @@ function renderSheetTabs() {
     sheetTabsListEl.appendChild(button);
   });
 
-  if (deleteSheetBtn) deleteSheetBtn.disabled = state.workbook.sheets.length <= 1;
+  if (deleteSheetBtn) deleteSheetBtn.disabled = !state.isAdminMode || state.workbook.sheets.length <= 1;
 }
 
 function updateTableTitle() {
@@ -2832,6 +2902,7 @@ function bindButtonActivation(button, handler, options = {}) {
 }
 
 function canMutateRows() {
+  if (!requireAdminMode()) return false;
   if (isCrossImportOpen() || isCrossEditOpen()) {
     setStatus("Сначала закройте открытое окно, потом меняйте строки.");
     return false;
@@ -3058,6 +3129,7 @@ function copyValuesToRange(sourceRange, targetRange) {
 }
 
 function startFillDrag() {
+  if (!requireAdminMode()) return;
   const sourceRange = getSelectionRange();
   if (!sourceRange || isCellEditingNow()) return;
 
@@ -3438,6 +3510,7 @@ function focusCellForEdit(td, value = getRawValue(td)) {
 }
 
 function startCellEdit(row, column, valueOverride = null) {
+  if (!requireAdminMode()) return;
   const td = getCell(row, column);
   if (!td || td.classList.contains("hidden")) return;
   if (isCrossCell(td)) {
@@ -3556,6 +3629,7 @@ function handleSearchInputFocus() {
 }
 
 function startEditWithText(td, text) {
+  if (!requireAdminMode()) return;
   if (!td || td.classList.contains("hidden")) return;
   startCellEdit(
     Number(td.dataset.row),
@@ -3768,6 +3842,7 @@ document.addEventListener("mouseup", () => {
 });
 
 sheet.addEventListener("dblclick", (e) => {
+  if (!requireAdminMode()) return;
   if (e.button !== 0) return;
   const td = e.target.closest("td");
   if (!td || td.classList.contains("hidden")) return;
@@ -3776,6 +3851,7 @@ sheet.addEventListener("dblclick", (e) => {
 });
 
 sheet.addEventListener("contextmenu", (e) => {
+  if (!state.isAdminMode) return;
   const td = e.target.closest("td");
   if (!isCrossCell(td) || td.classList.contains("hidden")) return;
 
@@ -3799,6 +3875,7 @@ document.addEventListener("click", (e) => {
 });
 
 document.addEventListener("paste", (e) => {
+  if (!state.isAdminMode) return;
   if (isCrossImportOpen() || isCrossEditOpen()) return;
   if (isCellEditingNow()) return;
   const activeTd = e.target.closest?.("td");
@@ -3902,12 +3979,14 @@ document.addEventListener("keydown", async (e) => {
   if (isEditing) return;
 
   if (ctrlOrCmd && !e.altKey && key === "z" && !e.shiftKey && !isEditing) {
+    if (!requireAdminMode()) return;
     e.preventDefault();
     undoLastAction();
     return;
   }
 
   if (ctrlOrCmd && !e.altKey && ((key === "y" && !e.shiftKey) || (key === "z" && e.shiftKey)) && !isEditing) {
+    if (!requireAdminMode()) return;
     e.preventDefault();
     redoLastAction();
     return;
@@ -3959,6 +4038,7 @@ document.addEventListener("keydown", async (e) => {
   }
 
   if (ctrlOrCmd && key === "v") {
+    if (!requireAdminMode()) return;
     if (!isEditing && isCrossCell(anchor)) {
       e.preventDefault();
 
@@ -3982,6 +4062,7 @@ document.addEventListener("keydown", async (e) => {
   }
 
   if (!isEditing && (e.key === "Delete" || e.key === "Backspace") && state.selected.size > 0) {
+    if (!requireAdminMode()) return;
     e.preventDefault();
     state.selected.forEach((keyItem) => {
       const [r, c] = keyItem.split(":").map(Number);
@@ -3996,11 +4077,13 @@ document.addEventListener("keydown", async (e) => {
   }
 
   if (!isEditing && !ctrlOrCmd && !e.altKey && e.key.length === 1 && state.selected.size === 1) {
+    if (!requireAdminMode()) return;
     e.preventDefault();
     startEditWithText(anchor, e.key);
   }
 
   if (!isEditing && e.key === "Enter" && state.selected.size === 1) {
+    if (!requireAdminMode()) return;
     e.preventDefault();
     startEditWithText(anchor);
   }
@@ -4011,6 +4094,8 @@ bindButtonActivation(removeRowBtn, deleteSelectionTargetRow);
 bindButtonActivation(insertRowAboveMouseBtn, insertRowAboveTarget, { pointerDown: true });
 bindButtonActivation(insertRowBelowMouseBtn, insertRowBelowTarget, { pointerDown: true });
 bindButtonActivation(removeRowMouseBtn, deleteCurrentTargetRow, { pointerDown: true });
+
+adminModeToggleBtn.addEventListener("click", toggleAdminMode);
 
 document.getElementById("clearCells").addEventListener("click", () => {
   if (!state.selected.size) {
@@ -4282,9 +4367,9 @@ async function initApp() {
   saveActiveSheetSnapshot();
   renderSheetTabs();
   pushHistorySnapshot();
-  updateHistoryButtons();
   setCrossImportModalVisibility(false);
   setChangeHistoryModalVisibility(false);
+  updateAdminModeUI();
 }
 
 window.addEventListener("resize", () => {
