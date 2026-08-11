@@ -105,7 +105,7 @@ const quantityModeDecreaseBtn = document.getElementById("quantityModeDecrease");
 const quantityAdjustCloseBtn = document.getElementById("quantityAdjustClose");
 const quantityAdjustCancelBtn = document.getElementById("quantityAdjustCancel");
 const quantityAdjustApplyBtn = document.getElementById("quantityAdjustApply");
-const APP_BUILD_ID = "table 2026-08-10 quantity-cell";
+const APP_BUILD_ID = "table 2026-08-11 workbook-import-2";
 const COLUMN_HEADERS = [
   "Бренд",
   "Артикул",
@@ -129,7 +129,7 @@ const CENTER_ALIGNED_COLUMNS = new Set([
 ]);
 const FIXED_ROW_COUNT = 1500;
 const TABLE_STORAGE_KEY = "oil-filters-table-v1";
-const TABLE_EXPORT_VERSION = 6;
+const TABLE_EXPORT_VERSION = 7;
 const DEFAULT_SHEET_NAME = "Лист 1";
 const TABLE_EXPORT_FILE_NAME = "oil-filters-table.json";
 const CHANGE_HISTORY_LIMIT = 50;
@@ -1880,6 +1880,7 @@ function serializeCurrentProject() {
     version: TABLE_EXPORT_VERSION,
     savedAt: new Date().toISOString(),
     columns: COLUMN_HEADERS,
+    sheetCount: workbook.sheets.length,
     workbook,
     changeHistory: state.changeHistory.slice(-CHANGE_HISTORY_LIMIT)
   };
@@ -2067,9 +2068,31 @@ async function restoreProjectFromPayload(payload) {
   if (!restored) return false;
 
   restoreChangeHistoryFromPayload(payload);
-  saveTableData(false);
+  // Открытие проекта должно только прочитать выбранный файл. Не ставим здесь
+  // автосохранение в очередь: при несовместимом/частично распознанном формате
+  // оно могло сразу перезаписать исходный JSON урезанным состоянием.
+  saveTableData(false, { syncFile: false });
   resetHistoryState();
   return true;
+}
+
+function getProjectCompatibilityError(payload) {
+  if (!payload || typeof payload !== "object") return "JSON не содержит объект проекта.";
+
+  const version = Number(payload.version);
+  if (payload.kind === "oil-filters-project" && Number.isFinite(version) && version > TABLE_EXPORT_VERSION) {
+    return `Проект создан в более новой версии приложения (${version}). Обновите файлы приложения и повторите загрузку.`;
+  }
+
+  const declaredSheetCount = Number(payload.sheetCount);
+  if (Number.isInteger(declaredSheetCount) && declaredSheetCount > 1) {
+    const actualSheetCount = Array.isArray(payload.workbook?.sheets) ? payload.workbook.sheets.length : 0;
+    if (actualSheetCount !== declaredSheetCount) {
+      return `JSON поврежден: ожидалось листов — ${declaredSheetCount}, найдено — ${actualSheetCount}.`;
+    }
+  }
+
+  return "";
 }
 
 async function readProjectPayloadFromFile(file) {
@@ -2090,6 +2113,12 @@ async function readProjectPayloadFromFile(file) {
 }
 
 async function applyProjectPayload(payload, fileName) {
+  const compatibilityError = getProjectCompatibilityError(payload);
+  if (compatibilityError) {
+    setStatus(compatibilityError);
+    return false;
+  }
+
   const restored = await restoreProjectFromPayload(payload);
   if (!restored) {
     setStatus(`Файл "${fileName}" не похож на проект этой таблицы.`);
@@ -2097,7 +2126,7 @@ async function applyProjectPayload(payload, fileName) {
   }
 
   setCurrentProjectName(fileName);
-  setStatus(`Проект "${fileName}" открыт.`);
+  setStatus(`Проект "${fileName}" открыт. Загружено листов: ${state.workbook.sheets.length}.`);
   return true;
 }
 
@@ -2280,7 +2309,6 @@ async function openProjectFromFileHandle(fileHandle) {
       return false;
     }
 
-    queueProjectFileSave();
     return true;
   } catch {
     setStatus("Не удалось открыть файл проекта.");
@@ -2365,10 +2393,18 @@ function extractWorkbookSnapshot(payload) {
   const workbook = payload.workbook && typeof payload.workbook === "object" ? payload.workbook : null;
   if (!workbook || !Array.isArray(workbook.sheets)) return null;
 
+  const usedSheetIds = new Set();
   const sheets = workbook.sheets
     .map((sheetItem, index) => {
       if (!sheetItem || typeof sheetItem !== "object") return null;
-      const id = String(sheetItem.id || `sheet-${index + 1}`);
+      const requestedId = String(sheetItem.id || `sheet-${index + 1}`);
+      let id = requestedId;
+      let suffix = 2;
+      while (usedSheetIds.has(id)) {
+        id = `${requestedId}-${suffix}`;
+        suffix += 1;
+      }
+      usedSheetIds.add(id);
       const snapshot =
         extractStructuredTableSnapshot(sheetItem.snapshot)
         || extractLegacyTableSnapshot(sheetItem.snapshot)
