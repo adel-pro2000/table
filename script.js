@@ -20,6 +20,32 @@ const loadProjectOnlineBtn = document.getElementById("loadProjectOnline");
 const saveProjectOnlineBtn = document.getElementById("saveProjectOnline");
 const downloadProjectCopyBtn = document.getElementById("downloadProjectCopy");
 const changeHistoryBtn = document.getElementById("changeHistory");
+const inventoryOpenBtn = document.getElementById("inventoryOpen");
+const inventoryPanelEl = document.getElementById("inventoryPanel");
+const inventoryCloseBtn = document.getElementById("inventoryClose");
+const inventoryStartBtn = document.getElementById("inventoryStart");
+const inventoryContinueBtn = document.getElementById("inventoryContinue");
+const inventoryFinishBtn = document.getElementById("inventoryFinish");
+const inventoryReopenBtn = document.getElementById("inventoryReopen");
+const inventoryApplyBtn = document.getElementById("inventoryApply");
+const inventoryCancelBtn = document.getElementById("inventoryCancel");
+const inventoryFilterEl = document.getElementById("inventoryFilter");
+const inventoryBarcodeFormEl = document.getElementById("inventoryBarcodeForm");
+const inventoryBarcodeEl = document.getElementById("inventoryBarcode");
+const inventoryLinesEl = document.getElementById("inventoryLines");
+const inventorySummaryEl = document.getElementById("inventorySummary");
+const inventoryNoticeEl = document.getElementById("inventoryNotice");
+const inventoryUnknownEl = document.getElementById("inventoryUnknown");
+const stockBarcodeOpenBtn = document.getElementById("stockBarcodeOpen");
+const stockBarcodeModalEl = document.getElementById("stockBarcodeModal");
+const stockBarcodeCloseBtn = document.getElementById("stockBarcodeClose");
+const stockBarcodeModeReceiptBtn = document.getElementById("stockBarcodeModeReceipt");
+const stockBarcodeModeWriteoffBtn = document.getElementById("stockBarcodeModeWriteoff");
+const stockBarcodeFormEl = document.getElementById("stockBarcodeForm");
+const stockBarcodeInputEl = document.getElementById("stockBarcodeInput");
+const stockBarcodeAmountEl = document.getElementById("stockBarcodeAmount");
+const stockBarcodeSubmitBtn = document.getElementById("stockBarcodeSubmit");
+const stockBarcodeStatusEl = document.getElementById("stockBarcodeStatus");
 const openProjectFileInputEl = document.getElementById("openProjectFile");
 const sheetTabsListEl = document.getElementById("sheetTabsList");
 const addSheetBtn = document.getElementById("addSheet");
@@ -105,7 +131,7 @@ const quantityModeDecreaseBtn = document.getElementById("quantityModeDecrease");
 const quantityAdjustCloseBtn = document.getElementById("quantityAdjustClose");
 const quantityAdjustCancelBtn = document.getElementById("quantityAdjustCancel");
 const quantityAdjustApplyBtn = document.getElementById("quantityAdjustApply");
-const APP_BUILD_ID = "table 2026-08-11 workbook-import-2";
+const APP_BUILD_ID = "table 2026-08-24 inventory-contrast-7";
 const COLUMN_HEADERS = [
   "Бренд",
   "Артикул",
@@ -118,6 +144,7 @@ const COLUMN_HEADERS = [
 const BRAND_COL_INDEX = COLUMN_HEADERS.indexOf("Бренд");
 const ARTICLE_COL_INDEX = COLUMN_HEADERS.indexOf("Артикул");
 const QUANTITY_COL_INDEX = COLUMN_HEADERS.indexOf("Кол-во");
+const BARCODE_COL_INDEX = COLUMN_HEADERS.indexOf("Штрих-код");
 const CROSS_COL_INDEX = COLUMN_HEADERS.indexOf("Кросы");
 const VEHICLE_COL_INDEX = COLUMN_HEADERS.indexOf("Автомобиль");
 const THREAD_DIAMETER_COL_INDEX = COLUMN_HEADERS.indexOf("Диаметр резьбы");
@@ -129,7 +156,7 @@ const CENTER_ALIGNED_COLUMNS = new Set([
 ]);
 const FIXED_ROW_COUNT = 1500;
 const TABLE_STORAGE_KEY = "oil-filters-table-v1";
-const TABLE_EXPORT_VERSION = 7;
+const TABLE_EXPORT_VERSION = 8;
 const DEFAULT_SHEET_NAME = "Лист 1";
 const TABLE_EXPORT_FILE_NAME = "oil-filters-table.json";
 const CHANGE_HISTORY_LIMIT = 50;
@@ -230,6 +257,13 @@ const state = {
   history: [],
   future: [],
   changeHistory: [],
+  stock: { revision: 0, movements: [] },
+  inventory: {
+    sessions: [],
+    activeSessionId: null,
+    ui: { mode: "closed", filter: "all", barcodeQuery: "", selectedItemId: null }
+  },
+  stockBarcode: { mode: "receipt", isOpen: false },
   isRestoringHistory: false,
   editingCell: null,
   fillDragState: {
@@ -323,7 +357,11 @@ function updateAdminModeUI() {
 }
 
 function requireAdminMode() {
-  if (state.isAdminMode) return true;
+  if (state.isAdminMode && !isSheetLockedByInventory(state.workbook.activeSheetId)) return true;
+  if (state.isAdminMode) {
+    setStatus("Основная таблица заблокирована до завершения инвентаризации.");
+    return false;
+  }
   setStatus("Изменения заблокированы. Включите режим администратора.");
   return false;
 }
@@ -468,6 +506,7 @@ function createCell(r, c) {
   td.dataset.raw = "";
   td.spellcheck = false;
   if (c === BRAND_COL_INDEX) td.classList.add("brand-col");
+  if (c === BARCODE_COL_INDEX) td.classList.add("barcode-col");
   if (CENTER_ALIGNED_COLUMNS.has(c)) td.classList.add("center-col");
   if (c === CROSS_COL_INDEX) td.classList.add("cross-col");
   return td;
@@ -485,6 +524,7 @@ function createHeaderCell(title, c) {
   const th = document.createElement("th");
   th.scope = "col";
   th.textContent = title;
+  if (c === BARCODE_COL_INDEX) th.classList.add("barcode-col");
   if (c === CROSS_COL_INDEX) th.classList.add("cross-col");
   return th;
 }
@@ -653,10 +693,449 @@ function applyQuantityAdjustment() {
     return;
   }
 
+  const itemId = getItemIdForRow(rowIndex);
+  const changed = adjustStock({
+    itemId,
+    sheetId: getActiveSheet().id,
+    rowIndex,
+    delta: isIncrease ? amount : -amount,
+    type: isIncrease ? "receipt" : "writeoff",
+    reason: isIncrease ? "Поступление товара" : "Списание товара"
+  });
+  if (!changed) return;
   closeQuantityAdjustModal();
-  updateCellValue(rowIndex, QUANTITY_COL_INDEX, formatNumber(nextQuantity));
   selectCell(getCell(rowIndex, QUANTITY_COL_INDEX));
   setStatus(`Количество товара ${isIncrease ? "увеличено" : "уменьшено"} на ${amount}. Остаток: ${formatNumber(nextQuantity)}.`);
+}
+
+function getActiveInventory() {
+  return state.inventory.sessions.find((session) => session.id === state.inventory.activeSessionId) || null;
+}
+
+function isSheetLockedByInventory(sheetId) {
+  const session = getActiveInventory();
+  return Boolean(session && ["counting", "review", "partially-applied"].includes(session.status) && session.scope.sheetIds.includes(sheetId));
+}
+
+let stockServiceMutation = false;
+function adjustStock({ itemId, sheetId, rowIndex, delta, type, reason, inventoryId = null, barcode = null, source = "manual" }) {
+  if (!Number.isInteger(delta) || delta === 0) return false;
+  if (getActiveSheet().id !== sheetId || getItemIdForRow(rowIndex) !== itemId) {
+    setStatus("Складская операция отменена: лист или товарная строка изменились.");
+    return false;
+  }
+  if (isSheetLockedByInventory(sheetId) && type !== "inventory-adjustment") {
+    setStatus("Приход и списание заблокированы: на этом листе идёт инвентаризация.");
+    return false;
+  }
+  const current = getQuantityValueForRow(rowIndex);
+  const next = current === null ? null : current + delta;
+  if (next === null || !Number.isInteger(next) || next < 0) {
+    setStatus(next !== null && next < 0 ? `Недостаточно товара для списания. Доступно: ${formatNumber(current)}.` : "Текущее количество товара некорректно.");
+    return false;
+  }
+  const quantityCell = getCell(rowIndex, QUANTITY_COL_INDEX);
+  if (!quantityCell) return false;
+  const rawBefore = getRawValue(quantityCell);
+  const movementLength = state.stock.movements.length;
+  const revisionBefore = state.stock.revision;
+  const movement = { id: createStableId(), itemId, sheetId, type, delta, quantityBefore: current, quantityAfter: next, reason, inventoryId, barcode, source, createdAt: new Date().toISOString(), createdBy: state.isAdminMode ? "administrator" : "operator" };
+  stockServiceMutation = true;
+  try {
+    setRawValue(quantityCell, String(next));
+    renderCell(quantityCell);
+    state.stock.movements.push(movement);
+    state.stock.revision += 1;
+    if (!saveTableData(false)) throw new Error("Не удалось сохранить складскую операцию.");
+    resetHistoryState();
+    return true;
+  } catch (error) {
+    setRawValue(quantityCell, rawBefore);
+    renderCell(quantityCell);
+    state.stock.movements.length = movementLength;
+    state.stock.revision = revisionBefore;
+    saveActiveSheetSnapshot();
+    saveTableData(false, { syncFile: false });
+    setStatus(error?.message || "Складская операция отменена.");
+    return false;
+  } finally {
+    stockServiceMutation = false;
+  }
+}
+
+function calculateInventoryLine(line) {
+  if (line.countedQty === null) return { ...line, difference: null, status: "uncounted" };
+  const difference = line.countedQty - line.expectedQty;
+  return { ...line, difference, status: difference === 0 ? "matched" : difference > 0 ? "surplus" : "shortage" };
+}
+
+function startInventory() {
+  if (!state.isAdminMode) return setStatus("Начать инвентаризацию может только администратор.");
+  if (getActiveInventory()) return setStatus("Сначала завершите или отмените активную инвентаризацию.");
+  saveActiveSheetSnapshot();
+  const activeSheet = getActiveSheet();
+  const lines = Object.entries(activeSheet.snapshot.data || {}).map(([rowKey, values]) => {
+    const expectedQty = Number(values[QUANTITY_COL_INDEX] || 0);
+    if (!Number.isInteger(expectedQty) || expectedQty < 0) return null;
+    return calculateInventoryLine({ id: createStableId(), itemId: getItemIdForRow(Number(rowKey), activeSheet), sheetId: activeSheet.id, rowIndex: Number(rowKey), brand: values[BRAND_COL_INDEX] || "", article: values[ARTICLE_COL_INDEX] || "", barcode: values[BARCODE_COL_INDEX] || "", expectedQty, countedQty: null, difference: null, status: "uncounted", countedAt: null, countedBy: null, appliedAt: null, appliedQty: null, comment: "" });
+  }).filter(Boolean);
+  const session = { id: createStableId(), number: `ИНВ-${new Date().getFullYear()}-${String(state.inventory.sessions.length + 1).padStart(4, "0")}`, title: `Инвентаризация: ${activeSheet.name}`, status: "counting", scope: { sheetIds: [activeSheet.id] }, startedAt: new Date().toISOString(), finishedAt: null, partialAppliedAt: null, appliedAt: null, baselineRevision: state.stock.revision, lines, unknownBarcodes: [] };
+  state.inventory.sessions.push(session);
+  state.inventory.activeSessionId = session.id;
+  state.inventory.ui.mode = "counting";
+  saveTableData(false);
+  setInventoryNotice();
+  renderInventoryPanel();
+}
+
+function setInventoryCount(itemId, quantity) {
+  const session = getActiveInventory();
+  if (!session || !["counting", "partially-applied"].includes(session.status) || (quantity !== null && (!Number.isInteger(quantity) || quantity < 0))) return false;
+  const index = session.lines.findIndex((line) => line.itemId === itemId);
+  if (index < 0 || session.lines[index].appliedAt) return false;
+  session.lines[index] = calculateInventoryLine({ ...session.lines[index], countedQty: quantity, countedAt: quantity === null ? null : new Date().toISOString(), countedBy: quantity === null ? null : "operator" });
+  setInventoryNotice();
+  saveTableData(false);
+  renderInventoryPanel();
+  return true;
+}
+
+function finishInventoryCounting() {
+  const session = getActiveInventory();
+  if (!session || !["counting", "partially-applied"].includes(session.status)) return;
+  session.status = "review"; session.finishedAt = new Date().toISOString(); state.inventory.ui.mode = "review";
+  saveTableData(false); renderInventoryPanel();
+  const pendingLines = session.lines.filter((line) => !line.appliedAt);
+  const countedCount = pendingLines.filter((line) => line.countedQty !== null).length;
+  const uncountedCount = pendingLines.length - countedCount;
+  if (uncountedCount && countedCount) setInventoryNotice(`Готово к частичному проведению: будет проведено ${countedCount}, останется непосчитано ${uncountedCount}.`);
+  if (uncountedCount && !countedCount) setInventoryNotice("Нет новых посчитанных позиций для проведения.", "error");
+}
+
+function applyInventoryResults() {
+  const session = getActiveInventory();
+  if (!state.isAdminMode) {
+    setInventoryNotice("Проведение доступно только в режиме администратора.", "error");
+    return setStatus("Проведение доступно только в режиме администратора.");
+  }
+  if (!session || session.status !== "review") {
+    setInventoryNotice("Сначала завершите подсчёт и перейдите к этапу проверки.", "error");
+    return setStatus("Сначала завершите подсчёт.");
+  }
+  const pendingLines = session.lines.filter((line) => !line.appliedAt);
+  const linesToApply = pendingLines.filter((line) => line.countedQty !== null);
+  const uncountedLines = pendingLines.filter((line) => line.countedQty === null);
+  if (!linesToApply.length) {
+    setInventoryNotice("Нет новых посчитанных позиций для проведения. Вернитесь к подсчёту и заполните «Факт» хотя бы у одной строки.", "error");
+    return setStatus("Нет новых позиций для проведения.");
+  }
+  if (state.stock.revision !== session.baselineRevision) {
+    setInventoryNotice(`Проведение остановлено: ревизия склада изменилась (${session.baselineRevision} → ${state.stock.revision}). Остатки после начала подсчёта были изменены.`, "error");
+    return setStatus("После начала инвентаризации остатки изменились.");
+  }
+  if (!session.scope.sheetIds.includes(getActiveSheet().id)) {
+    setInventoryNotice("Проведение остановлено: открыт другой лист, не входящий в эту инвентаризацию.", "error");
+    return setStatus("Откройте лист инвентаризации.");
+  }
+  const conflictLine = linesToApply.find((line) => getItemIdForRow(line.rowIndex) !== line.itemId || getQuantityValueForRow(line.rowIndex) !== line.expectedQty);
+  if (conflictLine) {
+    setInventoryNotice(`Проведение остановлено: позиция ${conflictLine.brand || "Без бренда"} ${conflictLine.article || "без артикула"} или её остаток изменились после начала подсчёта.`, "error");
+    return setStatus("Состав или остатки таблицы изменились после начала подсчёта.");
+  }
+  const confirmationText = uncountedLines.length
+    ? `Провести посчитанные позиции: ${linesToApply.length}? Непосчитанные позиции (${uncountedLines.length}) останутся без изменений.`
+    : `Провести все оставшиеся позиции: ${linesToApply.length}?`;
+  if (!window.confirm(confirmationText)) return setStatus("Проведение отменено пользователем.");
+  const backups = linesToApply.map((line) => ({ line, rawValue: getRawValue(getCell(line.rowIndex, QUANTITY_COL_INDEX)), appliedAt: line.appliedAt || null, appliedQty: line.appliedQty ?? null, appliedDifference: line.appliedDifference ?? null, movementId: line.movementId || null }));
+  const movementLength = state.stock.movements.length;
+  const revision = state.stock.revision;
+  const previousStatus = session.status;
+  const previousAppliedAt = session.appliedAt;
+  const previousPartialAppliedAt = session.partialAppliedAt;
+  const previousBaselineRevision = session.baselineRevision;
+  const previousFinishedAt = session.finishedAt;
+  const appliedTimestamp = new Date().toISOString();
+  stockServiceMutation = true;
+  try {
+    for (const line of linesToApply) {
+      const difference = line.countedQty - line.expectedQty;
+      if (difference) {
+        setRawValue(getCell(line.rowIndex, QUANTITY_COL_INDEX), String(line.countedQty));
+        renderCell(getCell(line.rowIndex, QUANTITY_COL_INDEX));
+        const movement = { id: createStableId(), itemId: line.itemId, type: "inventory-adjustment", delta: difference, quantityBefore: line.expectedQty, quantityAfter: line.countedQty, reason: "Корректировка по результатам инвентаризации", inventoryId: session.id, createdAt: appliedTimestamp, createdBy: "administrator" };
+        state.stock.movements.push(movement);
+        state.stock.revision += 1;
+        line.movementId = movement.id;
+      }
+      line.appliedAt = appliedTimestamp;
+      line.appliedQty = line.countedQty;
+      line.appliedDifference = difference;
+    }
+    session.baselineRevision = state.stock.revision;
+    if (uncountedLines.length) {
+      session.status = "partially-applied"; session.partialAppliedAt = session.partialAppliedAt || appliedTimestamp; session.finishedAt = null; state.inventory.ui.mode = "counting"; state.inventory.ui.filter = "uncounted"; inventoryFilterEl.value = "uncounted";
+    } else {
+      session.status = "applied"; session.appliedAt = appliedTimestamp; session.finishedAt = appliedTimestamp; state.inventory.activeSessionId = null; state.inventory.ui.mode = "closed";
+    }
+    if (!saveTableData(false)) throw new Error("Не удалось сохранить проведённые результаты.");
+    resetHistoryState();
+    renderInventoryPanel();
+    if (uncountedLines.length) {
+      setInventoryNotice(`Проведено частично: ${linesToApply.length} позиций. Неизменёнными осталось ${uncountedLines.length}; подсчёт можно продолжить.`, "success");
+      setStatus("Инвентаризация проведена частично.");
+    } else {
+      setInventoryNotice("Результаты проведены полностью: основные остатки обновлены, складские движения записаны.", "success"); setStatus("Результаты инвентаризации проведены.");
+    }
+  } catch (error) {
+    backups.forEach(({ line, rawValue, appliedAt, appliedQty, appliedDifference, movementId }) => { setRawValue(getCell(line.rowIndex, QUANTITY_COL_INDEX), rawValue); renderCell(getCell(line.rowIndex, QUANTITY_COL_INDEX)); line.appliedAt = appliedAt; line.appliedQty = appliedQty; line.appliedDifference = appliedDifference; line.movementId = movementId; });
+    state.stock.movements.length = movementLength; state.stock.revision = revision; session.status = previousStatus; session.appliedAt = previousAppliedAt; session.partialAppliedAt = previousPartialAppliedAt; session.baselineRevision = previousBaselineRevision; session.finishedAt = previousFinishedAt; state.inventory.activeSessionId = session.id; state.inventory.ui.mode = "review";
+    saveActiveSheetSnapshot();
+    saveTableData(false, { syncFile: false });
+    renderInventoryPanel(); setInventoryNotice(`Не удалось провести результаты: ${error.message}`, "error"); setStatus(error.message);
+  } finally { stockServiceMutation = false; }
+}
+
+function cancelInventory() {
+  const session = getActiveInventory();
+  if (!state.isAdminMode || !session || !["counting", "review", "partially-applied"].includes(session.status)) return;
+  const appliedCount = session.lines.filter((line) => line.appliedAt).length;
+  session.status = appliedCount ? "partially-applied" : "cancelled"; session.finishedAt = new Date().toISOString(); state.inventory.activeSessionId = null; state.inventory.ui.mode = "closed";
+  saveTableData(false); renderInventoryPanel(); setInventoryNotice(appliedCount ? `Инвентаризация закрыта частично проведённой. Проведённые позиции (${appliedCount}) сохранены, остальные остатки не менялись.` : "Инвентаризация отменена. Основные остатки не изменялись.");
+}
+
+function inventoryStatusLabel(status) {
+  return ({ uncounted: "Не посчитано", matched: "Совпало", surplus: "Излишек", shortage: "Недостача" })[status] || status;
+}
+
+function inventorySessionStatusLabel(status) {
+  return ({ counting: "Подсчёт", review: "Проверка", "partially-applied": "Проведена частично", applied: "Проведена", cancelled: "Отменена" })[status] || status;
+}
+
+function setInventoryNotice(message = "", type = "") {
+  inventoryNoticeEl.textContent = message;
+  inventoryNoticeEl.hidden = !message;
+  inventoryNoticeEl.classList.toggle("is-error", type === "error");
+  inventoryNoticeEl.classList.toggle("is-success", type === "success");
+}
+
+function normalizeBarcode(value) {
+  const compact = String(value ?? "")
+    .normalize("NFKC")
+    .replace(/^\][A-Za-z][0-9]/, "")
+    .replace(/[\s\u00A0\u200B-\u200D\u2060\uFEFF\x00-\x1F\x7F]/g, "")
+    .trim();
+  if (!compact) return "";
+  if (!/[A-Za-zА-Яа-я]/.test(compact)) return compact.replace(/\D/g, "");
+  return compact.toUpperCase();
+}
+
+function setStockBarcodeStatus(message, type = "") {
+  stockBarcodeStatusEl.textContent = message;
+  stockBarcodeStatusEl.classList.toggle("is-success", type === "success");
+  stockBarcodeStatusEl.classList.toggle("is-error", type === "error");
+}
+
+function setStockBarcodeMode(mode) {
+  const isReceipt = mode !== "writeoff";
+  state.stockBarcode.mode = isReceipt ? "receipt" : "writeoff";
+  stockBarcodeModeReceiptBtn.classList.toggle("is-active", isReceipt);
+  stockBarcodeModeWriteoffBtn.classList.toggle("is-active", !isReceipt);
+  stockBarcodeModeReceiptBtn.setAttribute("aria-pressed", String(isReceipt));
+  stockBarcodeModeWriteoffBtn.setAttribute("aria-pressed", String(!isReceipt));
+  stockBarcodeSubmitBtn.textContent = isReceipt ? "Добавить товар" : "Списать товар";
+  setStockBarcodeStatus(isReceipt ? "Режим прихода: каждое сканирование увеличивает остаток." : "Режим списания: каждое сканирование уменьшает остаток.");
+  window.setTimeout(() => stockBarcodeInputEl.focus(), 0);
+}
+
+function openStockBarcodeModal() {
+  if (getActiveInventory()) {
+    setStatus("Приход и списание заблокированы до завершения активной инвентаризации.");
+    return;
+  }
+  state.stockBarcode.isOpen = true;
+  stockBarcodeModalEl.hidden = false;
+  stockBarcodeModalEl.setAttribute("aria-hidden", "false");
+  stockBarcodeInputEl.value = "";
+  if (!Number.isInteger(Number(stockBarcodeAmountEl.value)) || Number(stockBarcodeAmountEl.value) <= 0) stockBarcodeAmountEl.value = "1";
+  setStockBarcodeMode(state.stockBarcode.mode);
+}
+
+function closeStockBarcodeModal() {
+  state.stockBarcode.isOpen = false;
+  stockBarcodeModalEl.hidden = true;
+  stockBarcodeModalEl.setAttribute("aria-hidden", "true");
+  stockBarcodeInputEl.value = "";
+}
+
+function findStockRowsByBarcode(barcode) {
+  const normalized = normalizeBarcode(barcode);
+  if (!normalized) return [];
+  return getBodyRows().map((tr, rowIndex) => {
+    const barcodeValue = getRawValue(getRowDataCell(tr, BARCODE_COL_INDEX));
+    if (normalizeBarcode(barcodeValue) !== normalized) return null;
+    return {
+      rowIndex,
+      barcode: barcodeValue,
+      brand: getRawValue(getRowDataCell(tr, BRAND_COL_INDEX)) || "Без бренда",
+      article: getRawValue(getRowDataCell(tr, ARTICLE_COL_INDEX)) || "без артикула",
+      quantity: getQuantityValueForRow(rowIndex)
+    };
+  }).filter(Boolean);
+}
+
+function selectStockBarcodeMatch(matches) {
+  if (matches.length === 1) return matches[0];
+  const answer = window.prompt(`Найдено несколько товаров. Введите номер:\n${matches.map((item, index) => `${index + 1}. ${item.brand} ${item.article} · остаток ${item.quantity ?? "?"}`).join("\n")}`, "1");
+  const index = Number(answer) - 1;
+  return Number.isInteger(index) ? matches[index] || null : null;
+}
+
+function applyStockBarcodeScan(rawBarcode) {
+  const barcode = normalizeBarcode(rawBarcode);
+  const amount = Number(stockBarcodeAmountEl.value);
+  if (!barcode) {
+    setStockBarcodeStatus("Сканер не передал штрих-код.", "error");
+    return false;
+  }
+  if (!Number.isInteger(amount) || amount <= 0) {
+    setStockBarcodeStatus("Количество должно быть целым числом больше нуля.", "error");
+    return false;
+  }
+  if (getActiveInventory()) {
+    setStockBarcodeStatus("Операция заблокирована: на листе идёт инвентаризация.", "error");
+    return false;
+  }
+  const matches = findStockRowsByBarcode(barcode);
+  if (!matches.length) {
+    setStockBarcodeStatus(`Штрих-код ${barcode} не найден на текущем листе.`, "error");
+    setStatus(`Штрих-код ${barcode} не найден.`);
+    return false;
+  }
+  const product = selectStockBarcodeMatch(matches);
+  if (!product) {
+    setStockBarcodeStatus("Операция отменена: товар не выбран.", "error");
+    return false;
+  }
+  if (!Number.isInteger(product.quantity) || product.quantity < 0) {
+    setStockBarcodeStatus(`У товара ${product.brand} ${product.article} некорректный остаток.`, "error");
+    return false;
+  }
+  const isReceipt = state.stockBarcode.mode === "receipt";
+  if (!isReceipt && amount > product.quantity) {
+    setStockBarcodeStatus(`Нельзя списать ${amount}: у ${product.brand} ${product.article} доступно ${product.quantity}.`, "error");
+    return false;
+  }
+  const delta = isReceipt ? amount : -amount;
+  const changed = adjustStock({
+    itemId: getItemIdForRow(product.rowIndex),
+    sheetId: getActiveSheet().id,
+    rowIndex: product.rowIndex,
+    delta,
+    type: isReceipt ? "receipt" : "writeoff",
+    reason: isReceipt ? "Поступление по штрих-коду" : "Списание по штрих-коду",
+    barcode,
+    source: "barcode"
+  });
+  if (!changed) {
+    setStockBarcodeStatus("Операция не выполнена. Проверьте сообщение внизу страницы.", "error");
+    return false;
+  }
+  const nextQuantity = product.quantity + delta;
+  setStockBarcodeStatus(`${isReceipt ? "Приход" : "Списание"}: ${product.brand} ${product.article}, ${amount} шт. Остаток: ${nextQuantity}.`, "success");
+  setStatus(`${product.brand} ${product.article}: остаток ${nextQuantity}.`);
+  selectCell(getCell(product.rowIndex, QUANTITY_COL_INDEX));
+  return true;
+}
+
+function refreshInventoryLineBarcodes(session) {
+  const sheetItem = state.workbook.sheets.find((candidate) => session.scope.sheetIds.includes(candidate.id));
+  if (!sheetItem?.snapshot?.data) return;
+  const linesByItemId = new Map(session.lines.map((line) => [line.itemId, line]));
+  Object.entries(sheetItem.snapshot.data).forEach(([rowKey, values]) => {
+    const itemId = sheetItem.snapshot.rowMeta?.[rowKey]?.itemId;
+    const line = linesByItemId.get(itemId);
+    if (line) line.barcode = values?.[BARCODE_COL_INDEX] || line.barcode || "";
+  });
+}
+
+function renderInventoryPanel() {
+  const session = getActiveInventory();
+  updateHistoryButtons();
+  inventoryLinesEl.innerHTML = "";
+  const mismatchCount = session ? session.lines.filter((line) => ["surplus", "shortage"].includes(line.status)).length : 0;
+  const appliedCount = session ? session.lines.filter((line) => line.appliedAt).length : 0;
+  const readyCount = session ? session.lines.filter((line) => !line.appliedAt && line.countedQty !== null).length : 0;
+  const uncountedCount = session ? session.lines.filter((line) => !line.appliedAt && line.countedQty === null).length : 0;
+  inventorySummaryEl.textContent = session
+    ? `${session.number} · ${inventorySessionStatusLabel(session.status)} · проведено: ${appliedCount} · готово: ${readyCount} · не посчитано: ${uncountedCount} · расхождений: ${mismatchCount}`
+    : "Нет активной инвентаризации.";
+  inventoryStartBtn.disabled = !state.isAdminMode || Boolean(session);
+  inventoryContinueBtn.disabled = !session || !["counting", "partially-applied"].includes(session.status);
+  inventoryFinishBtn.disabled = !session || !["counting", "partially-applied"].includes(session.status);
+  inventoryReopenBtn.disabled = !state.isAdminMode || !session || session.status !== "review";
+  inventoryApplyBtn.disabled = !session || session.status !== "review";
+  inventoryApplyBtn.textContent = `Провести посчитанные${readyCount ? ` (${readyCount})` : ""}`;
+  inventoryApplyBtn.title = !state.isAdminMode && session?.status === "review" ? "Для проведения включите режим администратора" : "";
+  inventoryCancelBtn.disabled = !state.isAdminMode || !session;
+  inventoryCancelBtn.textContent = session?.lines.some((line) => line.appliedAt) ? "Закрыть оставшиеся позиции" : "Отменить инвентаризацию";
+  inventoryBarcodeEl.disabled = !session || !["counting", "partially-applied"].includes(session.status);
+  if (!session) { inventoryUnknownEl.hidden = true; return; }
+  const filter = state.inventory.ui.filter;
+  session.lines.filter((line) => filter === "all" || (filter === "uncounted" ? line.status === "uncounted" : ["surplus", "shortage"].includes(line.status))).forEach((line) => {
+    const tr = document.createElement("tr");
+    [line.brand, line.article, line.barcode || "—", line.expectedQty].forEach((value) => { const td = document.createElement("td"); td.textContent = value; tr.appendChild(td); });
+    const countTd = document.createElement("td");
+    const countInput = document.createElement("input"); countInput.type = "number"; countInput.min = "0"; countInput.step = "1"; countInput.className = "inventory-count"; countInput.value = line.countedQty === null ? "" : String(line.countedQty); countInput.disabled = line.appliedAt || !["counting", "partially-applied"].includes(session.status); countInput.title = line.appliedAt ? "Позиция уже проведена" : "";
+    countInput.addEventListener("change", () => { const value = countInput.value.trim() === "" ? null : Number(countInput.value); if (!setInventoryCount(line.itemId, value)) { countInput.value = line.countedQty === null ? "" : line.countedQty; setStatus("Факт должен быть целым неотрицательным числом либо пустым."); } }); countTd.appendChild(countInput); tr.appendChild(countTd);
+    const differenceTd = document.createElement("td"); differenceTd.textContent = line.difference === null ? "—" : `${line.difference > 0 ? "+" : ""}${line.difference}`; tr.appendChild(differenceTd);
+    const statusTd = document.createElement("td"); statusTd.textContent = line.appliedAt ? `Проведено · ${inventoryStatusLabel(line.status)}` : inventoryStatusLabel(line.status); statusTd.className = line.appliedAt ? "inventory-status--matched" : `inventory-status--${line.status}`; tr.appendChild(statusTd);
+    const commentTd = document.createElement("td"); const comment = document.createElement("input"); comment.className = "inventory-comment"; comment.value = line.comment || ""; comment.disabled = line.appliedAt || !["counting", "partially-applied"].includes(session.status); comment.addEventListener("change", () => { line.comment = comment.value; saveTableData(false); }); commentTd.appendChild(comment); tr.appendChild(commentTd);
+    inventoryLinesEl.appendChild(tr);
+  });
+  inventoryUnknownEl.hidden = !session.unknownBarcodes.length;
+  inventoryUnknownEl.textContent = session.unknownBarcodes.length ? `Неопознанные штрих-коды: ${session.unknownBarcodes.map((entry) => entry.barcode).join(", ")}` : "";
+}
+
+function scanInventoryBarcode(barcode) {
+  const session = getActiveInventory();
+  if (!session || !["counting", "partially-applied"].includes(session.status)) return;
+  const originalBarcode = String(barcode || "");
+  const normalized = normalizeBarcode(originalBarcode);
+  if (!normalized) {
+    setStatus("Сканер не передал штрих-код.");
+    return;
+  }
+  refreshInventoryLineBarcodes(session);
+  const activeSheetId = getActiveSheet().id;
+  const allMatches = session.lines.filter((line) => {
+    const storedBarcode = normalizeBarcode(line.barcode);
+    const liveBarcode = line.sheetId === activeSheetId
+      ? normalizeBarcode(getRawValue(getCell(line.rowIndex, BARCODE_COL_INDEX)))
+      : "";
+    const sheetItem = state.workbook.sheets.find((candidate) => candidate.id === line.sheetId);
+    const snapshotBarcode = normalizeBarcode(sheetItem?.snapshot?.data?.[String(line.rowIndex)]?.[BARCODE_COL_INDEX]);
+    const matched = [storedBarcode, liveBarcode, snapshotBarcode].includes(normalized);
+    if (matched && liveBarcode) line.barcode = getRawValue(getCell(line.rowIndex, BARCODE_COL_INDEX));
+    return matched;
+  });
+  const matches = allMatches.filter((line) => !line.appliedAt);
+  if (!matches.length && allMatches.length) {
+    setInventoryNotice(`Позиция ${allMatches[0].brand} ${allMatches[0].article} уже проведена и повторно не учитывается.`);
+    setStatus("Эта позиция уже проведена.");
+    return;
+  }
+  if (!matches.length) {
+    session.unknownBarcodes.push({ barcode: normalized, rawBarcode: originalBarcode, scannedAt: new Date().toISOString() });
+    saveTableData(false); renderInventoryPanel(); setStatus(`Штрих-код ${normalized} не найден.`); return;
+  }
+  let line = matches[0];
+  if (matches.length > 1) {
+    const answer = window.prompt(`Найдено несколько товаров. Введите номер:\n${matches.map((item, index) => `${index + 1}. ${item.brand} ${item.article}`).join("\n")}`, "1");
+    const index = Number(answer) - 1; if (!Number.isInteger(index) || !matches[index]) return; line = matches[index];
+  }
+  if (setInventoryCount(line.itemId, (line.countedQty ?? 0) + 1)) {
+    setStatus(`Найдено: ${line.brand} ${line.article}. Факт: ${(line.countedQty ?? 0) + 1}.`);
+  }
 }
 
 let onlineConfirmResolver = null;
@@ -1543,8 +2022,9 @@ function closeChangeHistoryModal() {
 }
 
 function updateHistoryButtons() {
-  undoActionBtn.disabled = !state.isAdminMode || state.history.length <= 1;
-  redoActionBtn.disabled = !state.isAdminMode || state.future.length === 0;
+  const inventoryLocked = Boolean(getActiveInventory());
+  undoActionBtn.disabled = !state.isAdminMode || inventoryLocked || state.history.length <= 1;
+  redoActionBtn.disabled = !state.isAdminMode || inventoryLocked || state.future.length === 0;
 }
 
 function pushHistorySnapshot() {
@@ -1649,19 +2129,43 @@ function getTableDataSnapshot() {
   };
 }
 
+function createStableId() {
+  return globalThis.crypto?.randomUUID?.() || `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function ensureSheetRowMeta(sheetItem = getActiveSheet()) {
+  if (!sheetItem.snapshot || typeof sheetItem.snapshot !== "object") sheetItem.snapshot = createEmptySheetSnapshot();
+  if (!sheetItem.snapshot.rowMeta || typeof sheetItem.snapshot.rowMeta !== "object") sheetItem.snapshot.rowMeta = {};
+  Object.keys(sheetItem.snapshot.data || {}).forEach((rowKey) => {
+    if (!sheetItem.snapshot.rowMeta[rowKey]) sheetItem.snapshot.rowMeta[rowKey] = { itemId: createStableId() };
+  });
+  return sheetItem.snapshot.rowMeta;
+}
+
+function getItemIdForRow(rowIndex, sheetItem = getActiveSheet()) {
+  const rowMeta = ensureSheetRowMeta(sheetItem);
+  const key = String(rowIndex);
+  if (!rowMeta[key]) rowMeta[key] = { itemId: createStableId() };
+  return rowMeta[key].itemId;
+}
+
 function getStructuredTableDataSnapshot() {
   const data = {};
+  const previousMeta = ensureSheetRowMeta(getActiveSheet());
+  const rowMeta = {};
 
   getBodyRows().forEach((tr, r) => {
     const rowValues = getRowDataCells(tr).map((td) => getRawValue(td));
     if (rowValues.some((value) => value !== "")) {
       data[String(r)] = rowValues;
+      rowMeta[String(r)] = previousMeta[String(r)] || { itemId: createStableId() };
     }
   });
 
   return {
     rows: state.rows,
     data,
+    rowMeta,
     merges: getMergeSnapshot(),
     nextMasterId: state.nextMasterId
   };
@@ -1671,6 +2175,7 @@ function createEmptySheetSnapshot() {
   return {
     rows: FIXED_ROW_COUNT,
     data: {},
+    rowMeta: {},
     merges: [],
     nextMasterId: 1
   };
@@ -1778,6 +2283,10 @@ function applySheetSnapshot(snapshot) {
 function switchToSheet(sheetId) {
   ensureWorkbookInitialized();
   if (sheetId === state.workbook.activeSheetId) return;
+  if (getActiveInventory()) {
+    setStatus("Во время инвентаризации переключение листов заблокировано.");
+    return;
+  }
 
   const targetSheet = state.workbook.sheets.find((sheetItem) => sheetItem.id === sheetId);
   if (!targetSheet) return;
@@ -1795,6 +2304,10 @@ function switchToSheet(sheetId) {
 }
 
 function addWorkbookSheet() {
+  if (getActiveInventory()) {
+    setStatus("Нельзя добавлять листы во время активной инвентаризации.");
+    return;
+  }
   ensureWorkbookInitialized();
   saveActiveSheetSnapshot();
 
@@ -1816,6 +2329,10 @@ function addWorkbookSheet() {
 }
 
 function renameActiveWorkbookSheet() {
+  if (getActiveInventory()) {
+    setStatus("Нельзя переименовывать лист во время активной инвентаризации.");
+    return;
+  }
   const activeSheet = getActiveSheet();
   if (!activeSheet) return;
 
@@ -1829,6 +2346,10 @@ function renameActiveWorkbookSheet() {
 }
 
 function deleteActiveWorkbookSheet() {
+  if (getActiveInventory()) {
+    setStatus("Нельзя удалять листы во время активной инвентаризации.");
+    return;
+  }
   ensureWorkbookInitialized();
   if (state.workbook.sheets.length <= 1) {
     setStatus("Нельзя удалить единственный лист.");
@@ -1882,6 +2403,8 @@ function serializeCurrentProject() {
     columns: COLUMN_HEADERS,
     sheetCount: workbook.sheets.length,
     workbook,
+    inventory: state.inventory,
+    stock: state.stock,
     changeHistory: state.changeHistory.slice(-CHANGE_HISTORY_LIMIT)
   };
 }
@@ -2383,6 +2906,7 @@ function extractStructuredTableSnapshot(payload) {
   return {
     rows: Math.max(1, Number(candidate.rows) || FIXED_ROW_COUNT),
     data: candidate.data,
+    rowMeta: candidate.rowMeta && typeof candidate.rowMeta === "object" ? candidate.rowMeta : {},
     merges: Array.isArray(candidate.merges) ? candidate.merges : [],
     nextMasterId: Math.max(1, Number(candidate.nextMasterId) || 1)
   };
@@ -2458,6 +2982,16 @@ function wrapCurrentTableInWorkbook(name = DEFAULT_SHEET_NAME) {
 }
 
 function applyStoredTablePayload(payload) {
+  if (payload && typeof payload === "object") {
+    state.inventory = payload.inventory && typeof payload.inventory === "object"
+      ? payload.inventory
+      : { sessions: [], activeSessionId: null, ui: { mode: "closed", filter: "all", barcodeQuery: "", selectedItemId: null } };
+    state.inventory.sessions = Array.isArray(state.inventory.sessions) ? state.inventory.sessions : [];
+    state.inventory.ui = { mode: "closed", filter: "all", barcodeQuery: "", selectedItemId: null, ...(state.inventory.ui || {}) };
+    state.stock = payload.stock && typeof payload.stock === "object" ? payload.stock : { revision: 0, movements: [] };
+    state.stock.revision = Math.max(0, Number(state.stock.revision) || 0);
+    state.stock.movements = Array.isArray(state.stock.movements) ? state.stock.movements : [];
+  }
   const workbook = extractWorkbookSnapshot(payload);
   if (workbook) {
     return applyWorkbookSnapshot(workbook);
@@ -3036,6 +3570,10 @@ function bindButtonActivation(button, handler, options = {}) {
 
 function canMutateRows() {
   if (!requireAdminMode()) return false;
+  if (isSheetLockedByInventory(getActiveSheet().id)) {
+    setStatus("Строки заблокированы до завершения инвентаризации.");
+    return false;
+  }
   if (isCrossImportOpen() || isCrossEditOpen()) {
     setStatus("Сначала закройте открытое окно, потом меняйте строки.");
     return false;
@@ -3063,12 +3601,17 @@ function insertRowAt(rowIndex, colIndex = 0) {
 
   const targetRow = Math.max(0, Math.min(FIXED_ROW_COUNT - 1, Number(rowIndex) || 0));
   const rows = getMutableTableRows();
+  const activeSheet = getActiveSheet();
+  const metaRows = Array.from({ length: FIXED_ROW_COUNT }, (_, index) => ensureSheetRowMeta(activeSheet)[String(index)] || null);
   const droppedLastRow = rows[FIXED_ROW_COUNT - 1] || createEmptyRowValues();
   const hadActiveSearch = hasActiveTableSearch();
   let searchResetForVisibility = false;
 
   rows.splice(targetRow, 0, createEmptyRowValues());
   rows.length = FIXED_ROW_COUNT;
+  metaRows.splice(targetRow, 0, null);
+  metaRows.length = FIXED_ROW_COUNT;
+  activeSheet.snapshot.rowMeta = Object.fromEntries(metaRows.map((meta, index) => meta ? [String(index), meta] : null).filter(Boolean));
 
   if (!applyMutableTableRows(rows)) return false;
   if (hadActiveSearch && getTableRow(targetRow)?.style.display === "none") {
@@ -3100,11 +3643,16 @@ function deleteRowAt(rowIndex, colIndex = 0) {
 
   const targetRow = Math.max(0, Math.min(FIXED_ROW_COUNT - 1, Number(rowIndex) || 0));
   const rows = getMutableTableRows();
+  const activeSheet = getActiveSheet();
+  const metaRows = Array.from({ length: FIXED_ROW_COUNT }, (_, index) => ensureSheetRowMeta(activeSheet)[String(index)] || null);
   const hadActiveSearch = hasActiveTableSearch();
   let searchResetForVisibility = false;
 
   rows.splice(targetRow, 1);
   rows.push(createEmptyRowValues());
+  metaRows.splice(targetRow, 1);
+  metaRows.push(null);
+  activeSheet.snapshot.rowMeta = Object.fromEntries(metaRows.map((meta, index) => meta ? [String(index), meta] : null).filter(Boolean));
 
   if (!applyMutableTableRows(rows)) return false;
   if (hadActiveSearch && getTableRow(targetRow)?.style.display === "none") {
@@ -3529,6 +4077,36 @@ function isCellEditingNow() {
 function updateCellValue(row, column, value) {
   const td = getCell(row, column);
   if (!td || td.classList.contains("hidden")) return false;
+  if (!stockServiceMutation && isSheetLockedByInventory(getActiveSheet().id)) {
+    setStatus("Основная таблица заблокирована. Вводите фактическое количество в панели инвентаризации.");
+    return false;
+  }
+  if (column === QUANTITY_COL_INDEX && !stockServiceMutation) {
+    const numericValue = Number(String(value).trim());
+    if (!Number.isInteger(numericValue) || numericValue < 0) {
+      setStatus("Кол-во должно быть целым неотрицательным числом.");
+      return false;
+    }
+    if (isSheetLockedByInventory(getActiveSheet().id)) {
+      setStatus("Остаток заблокирован до завершения инвентаризации.");
+      return false;
+    }
+    const currentValue = getQuantityValueForRow(row);
+    if (currentValue === null) {
+      setStatus("Текущее количество не является числом.");
+      return false;
+    }
+    const delta = numericValue - currentValue;
+    if (delta === 0) return false;
+    return adjustStock({
+      itemId: getItemIdForRow(row),
+      sheetId: getActiveSheet().id,
+      rowIndex: row,
+      delta,
+      type: delta > 0 ? "receipt" : "writeoff",
+      reason: "Ручное изменение остатка"
+    });
+  }
   const normalized = normalizeCellText(td, value);
   const previousValue = getRawValue(td);
   setRawValue(td, normalized);
@@ -4254,6 +4832,7 @@ quantityAdjustModalEl.addEventListener("keydown", (event) => {
 });
 
 document.getElementById("clearCells").addEventListener("click", () => {
+  if (!requireAdminMode()) return;
   if (!state.selected.size) {
     setStatus("Сначала выделите ячейки для очистки.");
     return;
@@ -4322,6 +4901,35 @@ downloadProjectCopyBtn.addEventListener("click", () => {
 
 changeHistoryBtn.addEventListener("click", () => {
   openChangeHistoryModal();
+});
+
+inventoryOpenBtn.addEventListener("click", () => { inventoryPanelEl.hidden = false; renderInventoryPanel(); inventoryBarcodeEl.focus(); });
+inventoryCloseBtn.addEventListener("click", () => { inventoryPanelEl.hidden = true; });
+inventoryStartBtn.addEventListener("click", startInventory);
+inventoryContinueBtn.addEventListener("click", () => { inventoryPanelEl.hidden = false; renderInventoryPanel(); inventoryBarcodeEl.focus(); });
+inventoryFinishBtn.addEventListener("click", finishInventoryCounting);
+inventoryReopenBtn.addEventListener("click", () => { const session = getActiveInventory(); if (session?.status === "review") { session.status = session.lines.some((line) => line.appliedAt) ? "partially-applied" : "counting"; state.inventory.ui.mode = "counting"; setInventoryNotice(); saveTableData(false); renderInventoryPanel(); } });
+inventoryApplyBtn.addEventListener("click", applyInventoryResults);
+inventoryCancelBtn.addEventListener("click", () => { const session = getActiveInventory(); const hasAppliedLines = Boolean(session?.lines.some((line) => line.appliedAt)); const message = hasAppliedLines ? "Закрыть оставшиеся позиции? Уже проведённые остатки и движения сохранятся." : "Отменить инвентаризацию без изменения остатков?"; if (window.confirm(message)) cancelInventory(); });
+inventoryFilterEl.addEventListener("change", () => { state.inventory.ui.filter = inventoryFilterEl.value; renderInventoryPanel(); });
+inventoryBarcodeFormEl.addEventListener("submit", (event) => { event.preventDefault(); scanInventoryBarcode(inventoryBarcodeEl.value); inventoryBarcodeEl.value = ""; inventoryBarcodeEl.focus(); });
+
+stockBarcodeOpenBtn.addEventListener("click", openStockBarcodeModal);
+stockBarcodeCloseBtn.addEventListener("click", closeStockBarcodeModal);
+stockBarcodeModeReceiptBtn.addEventListener("click", () => setStockBarcodeMode("receipt"));
+stockBarcodeModeWriteoffBtn.addEventListener("click", () => setStockBarcodeMode("writeoff"));
+stockBarcodeFormEl.addEventListener("submit", (event) => {
+  event.preventDefault();
+  applyStockBarcodeScan(stockBarcodeInputEl.value);
+  stockBarcodeInputEl.value = "";
+  window.setTimeout(() => stockBarcodeInputEl.focus(), 0);
+});
+stockBarcodeModalEl.addEventListener("keydown", (event) => {
+  event.stopPropagation();
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeStockBarcodeModal();
+  }
 });
 
 addSheetBtn.addEventListener("click", () => {
@@ -4425,10 +5033,12 @@ crossEditCloseBtn.addEventListener("click", (e) => {
 });
 
 undoActionBtn.addEventListener("click", () => {
+  if (!requireAdminMode()) return;
   undoLastAction();
 });
 
 redoActionBtn.addEventListener("click", () => {
+  if (!requireAdminMode()) return;
   redoLastAction();
 });
 

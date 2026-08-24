@@ -249,7 +249,7 @@ button.primary:hover {
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  padding: 0 0 16px 54px;
+  padding: 0 0 16px;
 }
 
 .table-wrap::-webkit-scrollbar {
@@ -711,6 +711,45 @@ td.hidden {
   line-height: 1.4;
 }
 
+th.barcode-col,
+td.barcode-col {
+  width: 174px;
+  min-width: 174px;
+  max-width: 174px;
+}
+
+.inventory-panel { margin: 16px; padding: 18px; border: 1px solid #d7dce5; border-radius: 14px; background: #fff; box-shadow: 0 8px 24px rgba(20,30,50,.08); }
+.inventory-panel__header, .inventory-actions, .inventory-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.inventory-panel__header h2 { margin: 0 0 4px; font-size: 20px; }
+.inventory-summary { color: #596273; }
+.inventory-actions { justify-content: flex-start; margin: 14px 0; }
+.inventory-notice { margin: 0 0 12px; padding: 10px 12px; border: 1px solid #f1c58b; border-radius: 9px; background: #fff7e8; color: #7a4300; font-weight: 600; }
+.inventory-notice.is-success { border-color: #91c9a7; background: #edf9f1; color: #17663a; }
+.inventory-notice.is-error { border-color: #e5a5a5; background: #fff0f0; color: #982828; }
+.inventory-controls { justify-content: flex-start; margin-bottom: 12px; }
+.inventory-controls label, #inventoryBarcodeForm { display: flex; align-items: center; gap: 8px; }
+#inventoryBarcodeForm { flex-wrap: wrap; }
+.inventory-table-wrap { max-height: 58vh; overflow: auto; border: 1px solid #dde2ea; border-radius: 10px; }
+.inventory-table { width: 100%; border-collapse: collapse; }
+.inventory-table th, .inventory-table td { padding: 8px 10px; border-bottom: 1px solid #e7eaf0; text-align: left; white-space: nowrap; }
+.inventory-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, #1f7a53 0%, #176342 100%);
+  border-color: #0f5135;
+  color: #ffffff;
+  font-weight: 800;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+}
+.inventory-count { width: 92px; }
+.inventory-comment { min-width: 180px; width: 100%; }
+.inventory-status--matched { color: #147a3d; }
+.inventory-status--shortage { color: #b42318; }
+.inventory-status--surplus { color: #9a6700; }
+.inventory-status--uncounted { color: #667085; }
+.inventory-unknown { margin-top: 12px; padding: 10px; background: #fff4e5; border-radius: 8px; color: #8a4b08; }
+
 .quantity-adjust-card {
   width: min(480px, 100%);
 }
@@ -750,6 +789,15 @@ td.hidden {
   color: #8b1f1f;
   font-size: 13px;
   font-weight: 700;
+}
+
+.stock-barcode-form { display: grid; grid-template-columns: minmax(0, 1fr) 190px auto; align-items: end; gap: 10px; }
+.stock-barcode-status { min-height: 44px; padding: 11px 12px; border: 1px solid #c9d3e4; border-radius: 10px; background: #f8fbff; color: #344054; }
+.stock-barcode-status.is-success { border-color: #91c9a7; background: #edf9f1; color: #17663a; }
+.stock-barcode-status.is-error { border-color: #e5a5a5; background: #fff0f0; color: #982828; }
+
+@media (max-width: 680px) {
+  .stock-barcode-form { grid-template-columns: 1fr; }
 }
 
 .change-history-list {

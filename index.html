@@ -26,6 +26,8 @@
       <button id="saveProjectOnline">Сохранить онлайн</button>
       <button id="downloadProjectCopy">Скачать JSON</button>
       <button id="changeHistory">История изменений</button>
+      <button id="inventoryOpen" type="button">Инвентаризация</button>
+      <button id="stockBarcodeOpen" type="button">Сканер: приход / списание</button>
       <button id="crossImport">Заполнить Кроссы</button>
       <button id="undoAction">Отменить</button>
       <button id="redoAction">Вернуть</button>
@@ -188,6 +190,47 @@
       </div>
     </div>
 
+    <section id="inventoryPanel" class="inventory-panel" hidden aria-label="Инвентаризация">
+      <div class="inventory-panel__header">
+        <div>
+          <h2>Инвентаризация</h2>
+          <div id="inventorySummary" class="inventory-summary">Нет активной инвентаризации.</div>
+        </div>
+        <button id="inventoryClose" type="button">Закрыть</button>
+      </div>
+      <div class="inventory-actions">
+        <button id="inventoryStart" type="button">Начать инвентаризацию</button>
+        <button id="inventoryContinue" type="button">Продолжить</button>
+        <button id="inventoryFinish" type="button">Завершить подсчёт</button>
+        <button id="inventoryReopen" type="button">Вернуть к подсчёту</button>
+        <button id="inventoryApply" type="button" class="primary">Провести результаты</button>
+        <button id="inventoryCancel" type="button">Отменить инвентаризацию</button>
+      </div>
+      <div id="inventoryNotice" class="inventory-notice" role="alert" hidden></div>
+      <div class="inventory-controls">
+        <label>Фильтр
+          <select id="inventoryFilter">
+            <option value="all">Все позиции</option>
+            <option value="uncounted">Не посчитано</option>
+            <option value="mismatch">Есть расхождение</option>
+          </select>
+        </label>
+        <form id="inventoryBarcodeForm">
+          <label>Штрих-код
+            <input id="inventoryBarcode" inputmode="numeric" autocomplete="off" placeholder="Отсканируйте штрих-код" />
+          </label>
+          <button type="submit">Добавить 1</button>
+        </form>
+      </div>
+      <div class="inventory-table-wrap">
+        <table class="inventory-table">
+          <thead><tr><th>Бренд</th><th>Артикул</th><th>Штрих-код</th><th>Учёт</th><th>Факт</th><th>Разница</th><th>Статус</th><th>Комментарий</th></tr></thead>
+          <tbody id="inventoryLines"></tbody>
+        </table>
+      </div>
+      <div id="inventoryUnknown" class="inventory-unknown" hidden></div>
+    </section>
+
     <div class="status" id="status">Готово к работе.</div>
   </div>
 
@@ -321,6 +364,37 @@
     </div>
   </div>
 
-  <script src="script.js?v=20260811-workbook-import-2"></script>
+  <div id="stockBarcodeModal" class="modal-backdrop" hidden aria-hidden="true">
+    <div class="modal-card quantity-adjust-card" role="dialog" aria-modal="true" aria-labelledby="stockBarcodeTitle">
+      <div class="modal-card__header">
+        <div>
+          <div id="stockBarcodeTitle" class="modal-card__title">Операция по штрих-коду</div>
+          <div class="modal-card__subtitle">Сканер вводит код и отправляет Enter. Операция выполняется на текущем листе.</div>
+        </div>
+        <button id="stockBarcodeClose" type="button">Закрыть</button>
+      </div>
+
+      <div class="quantity-adjust-modes" role="group" aria-label="Тип складской операции">
+        <button id="stockBarcodeModeReceipt" class="quantity-mode-button is-active" type="button" aria-pressed="true">+ Приход</button>
+        <button id="stockBarcodeModeWriteoff" class="quantity-mode-button" type="button" aria-pressed="false">− Списание</button>
+      </div>
+
+      <form id="stockBarcodeForm" class="stock-barcode-form">
+        <label class="modal-field">
+          <span>Штрих-код</span>
+          <input id="stockBarcodeInput" inputmode="numeric" autocomplete="off" placeholder="Отсканируйте штрих-код" />
+        </label>
+        <label class="modal-field">
+          <span>Количество за одно сканирование</span>
+          <input id="stockBarcodeAmount" type="number" min="1" step="1" value="1" inputmode="numeric" />
+        </label>
+        <button id="stockBarcodeSubmit" type="submit" class="primary">Добавить товар</button>
+      </form>
+
+      <div id="stockBarcodeStatus" class="stock-barcode-status" role="status">Выберите операцию и отсканируйте товар.</div>
+    </div>
+  </div>
+
+  <script src="script.js?v=20260824-inventory-contrast-7"></script>
 </body>
 </html>
