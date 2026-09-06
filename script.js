@@ -131,7 +131,7 @@ const quantityModeDecreaseBtn = document.getElementById("quantityModeDecrease");
 const quantityAdjustCloseBtn = document.getElementById("quantityAdjustClose");
 const quantityAdjustCancelBtn = document.getElementById("quantityAdjustCancel");
 const quantityAdjustApplyBtn = document.getElementById("quantityAdjustApply");
-const APP_BUILD_ID = "table 2026-08-24 inventory-contrast-7";
+const APP_BUILD_ID = "table 2026-09-07 article-copy-2";
 const COLUMN_HEADERS = [
   "Бренд",
   "Артикул",
@@ -4417,6 +4417,43 @@ function hasMergedCells() {
   return state.mergedMasterIds.size > 0;
 }
 
+function getSelectedArticleCell() {
+  if (state.selected.size !== 1) return null;
+  const td = getAnchorCell();
+  if (!isArticleCell(td) || td.classList.contains("hidden")) return null;
+  if (td.parentElement?.style.display === "none" || !getRawValue(td).trim()) return null;
+  return td;
+}
+
+function copySelectedArticle(event) {
+  if (state.isAdminMode || isCellEditingNow() || isCrossImportOpen() || isCrossEditOpen()) return;
+  if (event.target.closest?.("input, textarea, select, [contenteditable='true']")) return;
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed
+    && !sheet.contains(selection.anchorNode) && !sheet.contains(selection.focusNode)) return;
+  if (!state.selected.size) return;
+
+  event.preventDefault();
+  const td = getSelectedArticleCell();
+  if (!td) {
+    setStatus("Для копирования выберите одну заполненную ячейку «Артикул».");
+    return;
+  }
+
+  if (!event.clipboardData) {
+    setStatus("Не удалось скопировать артикул. Попробуйте ещё раз через Ctrl+C или меню «Копировать».");
+    return;
+  }
+
+  const article = selection && !selection.isCollapsed
+    && td.contains(selection.anchorNode) && td.contains(selection.focusNode)
+    ? selection.toString()
+    : getRawValue(td);
+  event.clipboardData.setData("text/plain", article);
+  state.clipboard = { rows: 1, cols: 1, data: [[article]] };
+  setStatus(`Скопировано в буфер обмена: ${article}`);
+}
+
 function copySelectionToClipboard() {
   const bounds = getSelectedBounds();
   if (!bounds) return false;
@@ -4492,6 +4529,15 @@ sheet.addEventListener("mousedown", (e) => {
   const td = e.target.closest("td");
   if (!td || td.classList.contains("hidden")) return;
 
+  if (!state.isAdminMode && isArticleCell(td)) {
+    state.isSelecting = false;
+    state.didDrag = false;
+    state.selectionMouseButton = null;
+    clearSelection();
+    addToSelection(td);
+    return; // Обычное выделение текста мышью, без перехода в редактор.
+  }
+
   state.isSelecting = true;
   state.didDrag = false;
   state.selectionMouseButton = e.button;
@@ -4561,6 +4607,7 @@ sheet.addEventListener("click", (event) => {
 });
 
 sheet.addEventListener("dblclick", (e) => {
+  if (!state.isAdminMode && isArticleCell(e.target.closest("td"))) return;
   if (!requireAdminMode()) return;
   if (e.button !== 0) return;
   const td = e.target.closest("td");
@@ -4592,6 +4639,8 @@ document.addEventListener("click", (e) => {
   blurEditingCell();
   clearSelection();
 });
+
+document.addEventListener("copy", copySelectedArticle);
 
 document.addEventListener("paste", (e) => {
   if (!state.isAdminMode) return;
@@ -4749,7 +4798,9 @@ document.addEventListener("keydown", async (e) => {
     }
   }
 
-  if (ctrlOrCmd && key === "c") {
+  if (ctrlOrCmd && !e.altKey && !e.shiftKey && (key === "c" || e.code === "KeyC")) {
+    if (e.target.closest?.("input, textarea, select, [contenteditable='true']")) return;
+    if (!state.isAdminMode) return; // Системный буфер заполняется в обработчике copy.
     if (copySelectionToClipboard()) {
       e.preventDefault();
       setStatus("Скопировано в буфер таблицы.");
