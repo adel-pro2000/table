@@ -14,10 +14,16 @@ const removeRowMouseBtn = document.getElementById("removeRowMouse");
 const addRowBtn = document.getElementById("addRow");
 const removeRowBtn = document.getElementById("removeRow");
 const openProjectBtn = document.getElementById("openProject");
+const projectStartupEl = document.getElementById("projectStartup");
+const projectStartupTitleEl = document.getElementById("projectStartupTitle");
+const projectStartupMessageEl = document.getElementById("projectStartupMessage");
+const reopenLastProjectBtn = document.getElementById("reopenLastProject");
+const chooseStartupProjectBtn = document.getElementById("chooseStartupProject");
+const projectContentEl = document.querySelector(".table-section");
 const saveProjectBtn = document.getElementById("saveProject");
 const saveProjectAsBtn = document.getElementById("saveProjectAs");
-const loadProjectOnlineBtn = document.getElementById("loadProjectOnline");
-const saveProjectOnlineBtn = document.getElementById("saveProjectOnline");
+const enableProjectAutosaveBtn = document.getElementById("enableProjectAutosave");
+const downloadBrowserBackupBtn = document.getElementById("downloadBrowserBackup");
 const downloadProjectCopyBtn = document.getElementById("downloadProjectCopy");
 const changeHistoryBtn = document.getElementById("changeHistory");
 const inventoryOpenBtn = document.getElementById("inventoryOpen");
@@ -46,6 +52,21 @@ const stockBarcodeInputEl = document.getElementById("stockBarcodeInput");
 const stockBarcodeAmountEl = document.getElementById("stockBarcodeAmount");
 const stockBarcodeSubmitBtn = document.getElementById("stockBarcodeSubmit");
 const stockBarcodeStatusEl = document.getElementById("stockBarcodeStatus");
+const stockEntryBarcodeBtn = document.getElementById("stockEntryBarcode");
+const stockEntryManualBtn = document.getElementById("stockEntryManual");
+const stockManualPanelEl = document.getElementById("stockManualPanel");
+const stockManualSearchEl = document.getElementById("stockManualSearch");
+const stockOperationReasonEl = document.getElementById("stockOperationReason");
+const stockProductChoicesEl = document.getElementById("stockProductChoices");
+const stockChoiceSummaryEl = document.getElementById("stockChoiceSummary");
+const stockProductListEl = document.getElementById("stockProductList");
+const stockSelectedProductEl = document.getElementById("stockSelectedProduct");
+const stockSelectedDescriptionEl = document.getElementById("stockSelectedDescription");
+const stockConfirmProductBtn = document.getElementById("stockConfirmProduct");
+const stockScanHintEl = document.getElementById("stockScanHint");
+const stockRecentOperationsEl = document.getElementById("stockRecentOperations");
+const inventoryLockBannerEl = document.getElementById("inventoryLockBanner");
+const inventoryLockDetailsEl = document.getElementById("inventoryLockDetails");
 const openProjectFileInputEl = document.getElementById("openProjectFile");
 const sheetTabsListEl = document.getElementById("sheetTabsList");
 const addSheetBtn = document.getElementById("addSheet");
@@ -58,8 +79,6 @@ const adminMutationControls = [
   addRowBtn,
   removeRowBtn,
   document.getElementById("clearCells"),
-  openProjectBtn,
-  loadProjectOnlineBtn,
   addSheetBtn,
   renameSheetBtn,
   deleteSheetBtn,
@@ -115,11 +134,6 @@ const changeHistoryCloseBtn = document.getElementById("changeHistoryClose");
 const changeHistoryRefreshBtn = document.getElementById("changeHistoryRefresh");
 const buildBadgeEl = document.getElementById("buildBadge");
 const syncStatusEl = document.getElementById("syncStatus");
-const onlineConfirmModalEl = document.getElementById("onlineConfirmModal");
-const onlineConfirmTitleEl = document.getElementById("onlineConfirmTitle");
-const onlineConfirmMessageEl = document.getElementById("onlineConfirmMessage");
-const onlineConfirmCancelBtn = document.getElementById("onlineConfirmCancel");
-const onlineConfirmApplyBtn = document.getElementById("onlineConfirmApply");
 const quantityAdjustModalEl = document.getElementById("quantityAdjustModal");
 const quantityAdjustProductEl = document.getElementById("quantityAdjustProduct");
 const quantityAdjustCurrentEl = document.getElementById("quantityAdjustCurrent");
@@ -131,7 +145,8 @@ const quantityModeDecreaseBtn = document.getElementById("quantityModeDecrease");
 const quantityAdjustCloseBtn = document.getElementById("quantityAdjustClose");
 const quantityAdjustCancelBtn = document.getElementById("quantityAdjustCancel");
 const quantityAdjustApplyBtn = document.getElementById("quantityAdjustApply");
-const APP_BUILD_ID = "table 2026-09-07 article-copy-2";
+const APP_BUILD_ID = "table 2026-09-15 reopen-last-json";
+const PROJECT_AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 const COLUMN_HEADERS = [
   "Бренд",
   "Артикул",
@@ -163,12 +178,7 @@ const CHANGE_HISTORY_LIMIT = 50;
 const FILE_SYSTEM_DB_NAME = "oil-filters-table-fs";
 const FILE_SYSTEM_STORE_NAME = "handles";
 const PROJECT_FILE_HANDLE_KEY = "project-file-handle";
-const PROJECT_FILE_NAME_KEY = "project-file-name";
-const SUPABASE_URL = "https://qtfrzbszxjcnmkczwscm.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Qx59xVDsvNYV8ybOwCmLNA_3aSq_nLN";
-const SUPABASE_TABLE_NAME = "table_projects";
-const SUPABASE_PROJECT_ID = "main";
-const LOCAL_FILE_SAVE_DELAY_MS = 1200;
+const LAST_PROJECT_REFERENCE_KEY = "oil-filters-last-project-reference-v1";
 const PROJECT_FILE_PICKER_TYPES = [
   {
     description: "JSON project",
@@ -263,7 +273,7 @@ const state = {
     activeSessionId: null,
     ui: { mode: "closed", filter: "all", barcodeQuery: "", selectedItemId: null }
   },
-  stockBarcode: { mode: "receipt", isOpen: false },
+  stockBarcode: { mode: "writeoff", entryMode: "barcode", isOpen: false, selected: null, pending: null, processing: false, lastError: "" },
   isRestoringHistory: false,
   editingCell: null,
   fillDragState: {
@@ -308,26 +318,32 @@ const state = {
   },
   fileSystem: {
     projectFileHandle: null,
-    projectFileName: ""
+    projectFileName: "",
+    lastProjectFileHandle: null,
+    lastProjectFileName: ""
   },
   workbook: {
     sheets: [],
     activeSheetId: "",
     nextSheetId: 1
   },
-  cloud: {
-    isSaving: false,
-    lastSaveError: ""
-  },
   localFile: {
-    saveTimer: null,
     isSaving: false,
-    lastSaveError: ""
+    isOpening: false,
+    isPicking: false,
+    revision: 0,
+    savedRevision: 0,
+    sourceText: null,
+    projectEpoch: 0,
+    lastSaveError: "",
+    writePermission: false,
+    lastSavedAt: "",
+    autosaveTimer: null
   },
   syncStatus: {
-    browser: "Браузер: ожидает",
-    file: "Файл: не выбран",
-    cloud: "Онлайн: по запросу"
+    file: "JSON: не открыт",
+    changes: "Откройте JSON-файл базы",
+    autosave: "Автосохранение: выберите файл"
   }
 };
 
@@ -354,9 +370,11 @@ function updateAdminModeUI() {
   if (!isAdmin) fillHandleEl.hidden = true;
   updateHistoryButtons();
   renderSheetTabs();
+  if (!inventoryPanelEl.hidden) renderInventoryPanel();
 }
 
 function requireAdminMode() {
+  if (getActiveInventory()) { showInventoryLockNotice(); return false; }
   if (state.isAdminMode && !isSheetLockedByInventory(state.workbook.activeSheetId)) return true;
   if (state.isAdminMode) {
     setStatus("Основная таблица заблокирована до завершения инвентаризации.");
@@ -486,13 +504,14 @@ function updateSyncStatus(partial = {}) {
   if (!syncStatusEl) return;
 
   syncStatusEl.textContent = [
-    state.syncStatus.browser,
     state.syncStatus.file,
-    state.syncStatus.cloud
+    state.syncStatus.changes,
+    state.syncStatus.autosave
   ].join(" | ");
 
   const hasError = /ошибка|не удалось|нет доступа/i.test(syncStatusEl.textContent);
   syncStatusEl.classList.toggle("is-error", hasError);
+  syncStatusEl.classList.toggle("is-dirty", hasUnsavedProjectChanges());
 }
 
 function cellKey(r, c) {
@@ -630,8 +649,8 @@ function setQuantityAdjustMode(mode) {
   quantityModeDecreaseBtn.classList.toggle("is-active", !isIncrease);
   quantityModeIncreaseBtn.setAttribute("aria-pressed", String(isIncrease));
   quantityModeDecreaseBtn.setAttribute("aria-pressed", String(!isIncrease));
-  quantityAdjustLabelEl.textContent = isIncrease ? "Количество для добавления" : "Количество для списания";
-  quantityAdjustApplyBtn.textContent = isIncrease ? "Добавить" : "Убавить";
+  quantityAdjustLabelEl.textContent = isIncrease ? "Количество для оприходования" : "Количество для продажи";
+  quantityAdjustApplyBtn.textContent = isIncrease ? "Оприходовать" : "Продать";
   quantityAdjustErrorEl.hidden = true;
 }
 
@@ -649,6 +668,7 @@ function getQuantityValueForRow(rowIndex) {
 }
 
 function openQuantityAdjustModal(rowIndex) {
+  if (getActiveInventory()) { showInventoryLockNotice(); return; }
   const currentQuantity = getQuantityValueForRow(rowIndex);
   if (currentQuantity === null) {
     setStatus("Количество выбранного товара должно быть числом.");
@@ -700,9 +720,13 @@ function applyQuantityAdjustment() {
     rowIndex,
     delta: isIncrease ? amount : -amount,
     type: isIncrease ? "receipt" : "writeoff",
-    reason: isIncrease ? "Поступление товара" : "Списание товара"
+    reason: isIncrease ? "Оприходование вручную" : "Продажа вручную"
   });
-  if (!changed) return;
+  if (!changed) {
+    quantityAdjustErrorEl.textContent = state.stockBarcode.lastError || "Операция не выполнена.";
+    quantityAdjustErrorEl.hidden = false;
+    return;
+  }
   closeQuantityAdjustModal();
   selectCell(getCell(rowIndex, QUANTITY_COL_INDEX));
   setStatus(`Количество товара ${isIncrease ? "увеличено" : "уменьшено"} на ${amount}. Остаток: ${formatNumber(nextQuantity)}.`);
@@ -717,46 +741,76 @@ function isSheetLockedByInventory(sheetId) {
   return Boolean(session && ["counting", "review", "partially-applied"].includes(session.status) && session.scope.sheetIds.includes(sheetId));
 }
 
+function updateInventoryLockUI() {
+  const session = getActiveInventory();
+  const locked = Boolean(session);
+  document.body.classList.toggle("inventory-locked", locked);
+  inventoryLockBannerEl.hidden = !locked;
+  if (locked) {
+    const names = state.workbook.sheets.filter(item => session.scope.sheetIds.includes(item.id)).map(item => item.name).join(", ");
+    inventoryLockDetailsEl.textContent = `${session.number} · ${inventorySessionStatusLabel(session.status)} · ${names}. Редактирование таблицы, переключение листов, продажи и оприходование недоступны. Продолжите подсчёт или закройте документ инвентаризации.`;
+  }
+  const reason = "🔒 Недоступно: инвентаризация не завершена";
+  adminMutationControls.forEach(button => {
+    button.disabled = locked || !state.isAdminMode;
+    button.classList.toggle("inventory-disabled", locked);
+    button.setAttribute("aria-disabled", String(button.disabled));
+    if (locked) button.title = reason;
+    else button.title = state.isAdminMode ? (button.dataset.adminOriginalTitle || "") : "Доступно только в режиме администратора";
+  });
+  if (!locked && state.workbook.sheets.length <= 1) deleteSheetBtn.disabled = true;
+  stockBarcodeOpenBtn.disabled = locked;
+  stockBarcodeOpenBtn.classList.toggle("inventory-disabled", locked);
+  stockBarcodeOpenBtn.title = locked ? reason : "Продажа и оприходование по всем листам";
+  adminModeStatusEl.textContent = locked ? "🔒 ИНВЕНТАРИЗАЦИЯ: ЛИСТЫ И ЯЧЕЙКИ ЗАБЛОКИРОВАНЫ" : state.isAdminMode ? "Изменения разрешены" : "Изменения заблокированы";
+  sheet.setAttribute("aria-readonly", String(locked || !state.isAdminMode));
+  if (locked) {
+    sheet.setAttribute("aria-describedby", "inventoryLockDetails");
+    fillHandleEl.hidden = true;
+    rowControlsEl.hidden = true;
+  } else sheet.removeAttribute("aria-describedby");
+  sheetTabsListEl.querySelectorAll(".sheet-tab").forEach(button => {
+    const item = state.workbook.sheets.find(item => item.id === button.dataset.sheetId);
+    button.disabled = locked;
+    button.classList.toggle("inventory-disabled", locked);
+    button.textContent = `${locked ? "🔒 " : ""}${item?.name || "Лист"}`;
+    button.title = locked ? `${item?.name}: инвентаризация не завершена` : (item?.name || "");
+  });
+  updateHistoryButtons();
+}
+
+function showInventoryLockNotice() {
+  updateInventoryLockUI();
+  setStatus("🔒 Листы и ячейки заблокированы до завершения инвентаризации.");
+  inventoryLockBannerEl.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
 let stockServiceMutation = false;
 function adjustStock({ itemId, sheetId, rowIndex, delta, type, reason, inventoryId = null, barcode = null, source = "manual" }) {
-  if (!Number.isInteger(delta) || delta === 0) return false;
-  if (getActiveSheet().id !== sheetId || getItemIdForRow(rowIndex) !== itemId) {
-    setStatus("Складская операция отменена: лист или товарная строка изменились.");
-    return false;
-  }
-  if (isSheetLockedByInventory(sheetId) && type !== "inventory-adjustment") {
-    setStatus("Приход и списание заблокированы: на этом листе идёт инвентаризация.");
-    return false;
-  }
-  const current = getQuantityValueForRow(rowIndex);
-  const next = current === null ? null : current + delta;
-  if (next === null || !Number.isInteger(next) || next < 0) {
-    setStatus(next !== null && next < 0 ? `Недостаточно товара для списания. Доступно: ${formatNumber(current)}.` : "Текущее количество товара некорректно.");
-    return false;
-  }
-  const quantityCell = getCell(rowIndex, QUANTITY_COL_INDEX);
-  if (!quantityCell) return false;
-  const rawBefore = getRawValue(quantityCell);
-  const movementLength = state.stock.movements.length;
-  const revisionBefore = state.stock.revision;
-  const movement = { id: createStableId(), itemId, sheetId, type, delta, quantityBefore: current, quantityAfter: next, reason, inventoryId, barcode, source, createdAt: new Date().toISOString(), createdBy: state.isAdminMode ? "administrator" : "operator" };
+  state.stockBarcode.lastError = "";
   stockServiceMutation = true;
   try {
-    setRawValue(quantityCell, String(next));
-    renderCell(quantityCell);
-    state.stock.movements.push(movement);
-    state.stock.revision += 1;
-    if (!saveTableData(false)) throw new Error("Не удалось сохранить складскую операцию.");
-    resetHistoryState();
-    return true;
-  } catch (error) {
-    setRawValue(quantityCell, rawBefore);
-    renderCell(quantityCell);
-    state.stock.movements.length = movementLength;
-    state.stock.revision = revisionBefore;
     saveActiveSheetSnapshot();
-    saveTableData(false, { syncFile: false });
-    setStatus(error?.message || "Складская операция отменена.");
+    const movement = StockService.commit({
+      workbook: state.workbook, stock: state.stock,
+      operation: { itemId, sheetId, delta, type, reason, barcode, source, createdBy: state.isAdminMode ? "administrator" : "operator" },
+      isLocked: () => Boolean(getActiveInventory()), normalizeBarcode, createId: createStableId,
+      // Write the whole v8 project only after balance and movement are prepared together.
+      persist: () => saveTableData(false),
+      syncRow: (target, value) => {
+        if (target.sheet.id !== state.workbook.activeSheetId) return;
+        const cell = getCell(target.rowIndex, QUANTITY_COL_INDEX);
+        if (!cell) throw new Error("Ячейка количества не найдена.");
+        setRawValue(cell, value);
+        renderCell(cell);
+      }
+    });
+    // An inventory movement cannot be undone as an isolated table edit.
+    resetHistoryState();
+    return movement;
+  } catch (error) {
+    state.stockBarcode.lastError = error?.message || "Складская операция отменена.";
+    setStatus(state.stockBarcode.lastError);
     return false;
   } finally {
     stockServiceMutation = false;
@@ -772,6 +826,9 @@ function calculateInventoryLine(line) {
 function startInventory() {
   if (!state.isAdminMode) return setStatus("Начать инвентаризацию может только администратор.");
   if (getActiveInventory()) return setStatus("Сначала завершите или отмените активную инвентаризацию.");
+  closeCellEditor();
+  closeQuantityAdjustModal();
+  if (state.stockBarcode.isOpen) closeStockBarcodeModal();
   saveActiveSheetSnapshot();
   const activeSheet = getActiveSheet();
   const lines = Object.entries(activeSheet.snapshot.data || {}).map(([rowKey, values]) => {
@@ -933,6 +990,68 @@ function setStockBarcodeStatus(message, type = "") {
   stockBarcodeStatusEl.textContent = message;
   stockBarcodeStatusEl.classList.toggle("is-success", type === "success");
   stockBarcodeStatusEl.classList.toggle("is-error", type === "error");
+  if (type === "error") playStockErrorSound();
+}
+
+let stockAudioContext = null;
+function unlockStockSound() {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    if (!stockAudioContext) stockAudioContext = new AudioContext();
+    if (stockAudioContext.state === "suspended") stockAudioContext.resume().catch(() => {});
+  } catch { /* Visual alerts remain available if audio is unavailable. */ }
+}
+
+function playStockErrorSound() {
+  unlockStockSound();
+  if (!stockAudioContext) return;
+  const beep = () => {
+    if (stockAudioContext.state !== "running") return;
+    const now = stockAudioContext.currentTime;
+    [0, 0.22].forEach((delay) => {
+      const oscillator = stockAudioContext.createOscillator();
+      const gain = stockAudioContext.createGain();
+      oscillator.frequency.value = 440;
+      gain.gain.setValueAtTime(0, now + delay);
+      gain.gain.linearRampToValueAtTime(0.18, now + delay + 0.015);
+      gain.gain.linearRampToValueAtTime(0, now + delay + 0.16);
+      oscillator.connect(gain); gain.connect(stockAudioContext.destination);
+      oscillator.start(now + delay); oscillator.stop(now + delay + 0.18);
+      oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+    });
+  };
+  try {
+    if (stockAudioContext.state === "running") beep();
+    else stockAudioContext.resume().then(beep).catch(() => {});
+  } catch { /* Do not interrupt stock operations for an audio failure. */ }
+}
+
+function focusStockInput() {
+  if (!state.stockBarcode.isOpen) return;
+  (state.stockBarcode.entryMode === "manual" ? stockManualSearchEl : stockBarcodeInputEl).focus();
+}
+
+function clearStockSelection() {
+  state.stockBarcode.selected = null;
+  state.stockBarcode.pending = null;
+  stockSelectedProductEl.hidden = true;
+  stockProductChoicesEl.hidden = true;
+  stockProductListEl.replaceChildren();
+}
+
+function setStockEntryMode(mode) {
+  state.stockBarcode.entryMode = mode === "manual" ? "manual" : "barcode";
+  const manual = state.stockBarcode.entryMode === "manual";
+  clearStockSelection();
+  stockBarcodeInputEl.value = "";
+  stockBarcodeFormEl.hidden = manual;
+  stockManualPanelEl.hidden = !manual;
+  stockScanHintEl.hidden = manual;
+  stockEntryBarcodeBtn.setAttribute("aria-pressed", String(!manual));
+  stockEntryManualBtn.setAttribute("aria-pressed", String(manual));
+  if (manual) searchStockManually();
+  focusStockInput();
 }
 
 function setStockBarcodeMode(mode) {
@@ -942,22 +1061,32 @@ function setStockBarcodeMode(mode) {
   stockBarcodeModeWriteoffBtn.classList.toggle("is-active", !isReceipt);
   stockBarcodeModeReceiptBtn.setAttribute("aria-pressed", String(isReceipt));
   stockBarcodeModeWriteoffBtn.setAttribute("aria-pressed", String(!isReceipt));
-  stockBarcodeSubmitBtn.textContent = isReceipt ? "Добавить товар" : "Списать товар";
-  setStockBarcodeStatus(isReceipt ? "Режим прихода: каждое сканирование увеличивает остаток." : "Режим списания: каждое сканирование уменьшает остаток.");
-  window.setTimeout(() => stockBarcodeInputEl.focus(), 0);
+  stockBarcodeSubmitBtn.textContent = isReceipt ? "Оприходовать" : "Продать";
+  stockBarcodeModalEl.dataset.operation = isReceipt ? "receipt" : "sale";
+  clearStockSelection();
+  stockBarcodeInputEl.value = "";
+  setStockBarcodeStatus(isReceipt ? "Оприходование: товар будет добавлен на тот лист, где он найден." : "Продажа: указанное количество будет списано с листа найденного товара.");
+  if (state.stockBarcode.entryMode === "manual") searchStockManually();
+  focusStockInput();
 }
 
 function openStockBarcodeModal() {
   if (getActiveInventory()) {
-    setStatus("Приход и списание заблокированы до завершения активной инвентаризации.");
+    showInventoryLockNotice();
     return;
   }
+  closeCellEditor();
+  closeQuantityAdjustModal();
+  clearSelection();
+  unlockStockSound();
   state.stockBarcode.isOpen = true;
   stockBarcodeModalEl.hidden = false;
   stockBarcodeModalEl.setAttribute("aria-hidden", "false");
   stockBarcodeInputEl.value = "";
   if (!Number.isInteger(Number(stockBarcodeAmountEl.value)) || Number(stockBarcodeAmountEl.value) <= 0) stockBarcodeAmountEl.value = "1";
   setStockBarcodeMode(state.stockBarcode.mode);
+  setStockEntryMode(state.stockBarcode.entryMode);
+  renderStockRecentOperations();
 }
 
 function closeStockBarcodeModal() {
@@ -965,39 +1094,135 @@ function closeStockBarcodeModal() {
   stockBarcodeModalEl.hidden = true;
   stockBarcodeModalEl.setAttribute("aria-hidden", "true");
   stockBarcodeInputEl.value = "";
+  clearStockSelection();
+  stockBarcodeOpenBtn.focus();
+}
+
+function getStockProducts() {
+  saveActiveSheetSnapshot();
+  state.workbook.sheets.forEach((sheetItem) => {
+    prepareLegacyStockSheet(sheetItem);
+    ensureSheetRowMeta(sheetItem);
+  });
+  return StockService.products(state.workbook);
+}
+
+// Old projects can store an inactive sheet as HTML. Read it in an inert
+// template, without switching sheets or touching the visible table.
+function prepareLegacyStockSheet(sheetItem) {
+  const snapshot = sheetItem.snapshot;
+  if (snapshot?.data || typeof snapshot?.tbodyHtml !== "string") return;
+  const template = document.createElement("template");
+  template.innerHTML = `<table><tbody>${snapshot.tbodyHtml}</tbody></table>`;
+  const data = {};
+  const merges = [];
+  const masterIds = new Set(snapshot.mergedMasterIds || []);
+  template.content.querySelectorAll("tbody > tr").forEach((tr, row) => {
+    const values = COLUMN_HEADERS.map((_, col) => getRawValue(getRowDataCell(tr, col)));
+    if (values.some(value => value !== "")) data[row] = values;
+    getRowDataCells(tr).forEach(td => {
+      if (masterIds.has(td.dataset.masterId)) merges.push({ id: td.dataset.masterId, row,
+        col: Number(td.dataset.col), rowSpan: Math.max(1, td.rowSpan), colSpan: Math.max(1, td.colSpan) });
+    });
+  });
+  sheetItem.snapshot = { rows: snapshot.rows, data, rowMeta: snapshot.rowMeta || {}, merges, nextMasterId: snapshot.nextMasterId };
 }
 
 function findStockRowsByBarcode(barcode) {
   const normalized = normalizeBarcode(barcode);
-  if (!normalized) return [];
-  return getBodyRows().map((tr, rowIndex) => {
-    const barcodeValue = getRawValue(getRowDataCell(tr, BARCODE_COL_INDEX));
-    if (normalizeBarcode(barcodeValue) !== normalized) return null;
-    return {
-      rowIndex,
-      barcode: barcodeValue,
-      brand: getRawValue(getRowDataCell(tr, BRAND_COL_INDEX)) || "Без бренда",
-      article: getRawValue(getRowDataCell(tr, ARTICLE_COL_INDEX)) || "без артикула",
-      quantity: getQuantityValueForRow(rowIndex)
-    };
-  }).filter(Boolean);
+  return normalized ? getStockProducts().filter(product => normalizeBarcode(product.barcode) === normalized) : [];
 }
 
-function selectStockBarcodeMatch(matches) {
-  if (matches.length === 1) return matches[0];
-  const answer = window.prompt(`Найдено несколько товаров. Введите номер:\n${matches.map((item, index) => `${index + 1}. ${item.brand} ${item.article} · остаток ${item.quantity ?? "?"}`).join("\n")}`, "1");
-  const index = Number(answer) - 1;
-  return Number.isInteger(index) ? matches[index] || null : null;
+function renderStockChoices(products, pending = null) {
+  clearStockSelection();
+  state.stockBarcode.pending = pending;
+  stockProductChoicesEl.hidden = false;
+  stockChoiceSummaryEl.textContent = products.length
+    ? `Найдено: ${products.length}. Выберите товар и проверьте название листа.${products.length > 100 ? " Показаны первые 100 — уточните поиск." : ""}`
+    : "Товары не найдены ни на одном листе.";
+  products.slice(0, 100).forEach(product => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "stock-product-option";
+    button.textContent = `${product.brand} · ${product.article} | Лист: ${product.sheetName} | Остаток: ${product.quantity ?? "ошибка"} | Код: ${product.barcode || "—"}`;
+    button.addEventListener("click", () => {
+      state.stockBarcode.selected = product;
+      stockSelectedDescriptionEl.textContent = button.textContent;
+      stockSelectedProductEl.hidden = false;
+      stockConfirmProductBtn.textContent = `${state.stockBarcode.mode === "receipt" ? "Оприходовать" : "Продать"} ${Number(stockBarcodeAmountEl.value) || ""} шт.`;
+      stockConfirmProductBtn.focus();
+    });
+    stockProductListEl.appendChild(button);
+  });
+}
+
+function searchStockManually() {
+  const tokens = stockManualSearchEl.value.trim().toLocaleLowerCase("ru").split(/\s+/).filter(Boolean);
+  if (!tokens.length) { clearStockSelection(); return; }
+  const products = getStockProducts().filter(product => {
+    const text = `${product.brand} ${product.article} ${product.barcode} ${product.sheetName}`.toLocaleLowerCase("ru");
+    return tokens.every(token => text.includes(token));
+  });
+  renderStockChoices(products);
+}
+
+function performStockOperation(product, source, barcode = null) {
+  if (state.stockBarcode.processing) return false;
+  const amount = Number(stockBarcodeAmountEl.value);
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    setStockBarcodeStatus("Количество должно быть целым числом больше нуля.", "error");
+    return false;
+  }
+  const isReceipt = state.stockBarcode.mode === "receipt";
+  const label = isReceipt ? "Оприходование" : "Продажа";
+  state.stockBarcode.processing = true;
+  try {
+    const comment = stockOperationReasonEl.value.trim();
+    const movement = adjustStock({
+      itemId: product.itemId, sheetId: product.sheetId,
+      delta: isReceipt ? amount : -amount,
+      // Keep the v8 movement type for compatibility; the reason identifies a sale.
+      type: isReceipt ? "receipt" : "writeoff",
+      reason: `${label}${comment ? `: ${comment}` : ""}`, barcode, source
+    });
+    if (!movement) {
+      setStockBarcodeStatus(state.stockBarcode.lastError || "Операция не выполнена.", "error");
+      return false;
+    }
+    const message = `${label}: ${movement.brand} ${movement.article} · лист «${movement.sheetName}» · ${amount} шт. Остаток: ${movement.quantityBefore} → ${movement.quantityAfter}.`;
+    setStockBarcodeStatus(message, "success");
+    setStatus(message);
+    clearStockSelection();
+    renderStockRecentOperations();
+    if (state.stockBarcode.entryMode === "manual") searchStockManually();
+    return true;
+  } finally {
+    state.stockBarcode.processing = false;
+    focusStockInput();
+  }
+}
+
+function renderStockRecentOperations() {
+  stockRecentOperationsEl.replaceChildren();
+  state.stock.movements.slice(-10).reverse().forEach(movement => {
+    const li = document.createElement("li");
+    li.textContent = `${new Date(movement.createdAt).toLocaleString("ru-RU")} · ${movement.reason || movement.type} · ${movement.brand || ""} ${movement.article || ""} · ${movement.sheetName || movement.sheetId || ""} · ${movement.quantityBefore} → ${movement.quantityAfter}`;
+    stockRecentOperationsEl.appendChild(li);
+  });
 }
 
 function applyStockBarcodeScan(rawBarcode) {
+  if (state.stockBarcode.pending) {
+    setStockBarcodeStatus("Сначала выберите товар для предыдущего штрих-кода или отмените выбор.", "error");
+    return false;
+  }
   const barcode = normalizeBarcode(rawBarcode);
   const amount = Number(stockBarcodeAmountEl.value);
   if (!barcode) {
     setStockBarcodeStatus("Сканер не передал штрих-код.", "error");
     return false;
   }
-  if (!Number.isInteger(amount) || amount <= 0) {
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
     setStockBarcodeStatus("Количество должно быть целым числом больше нуля.", "error");
     return false;
   }
@@ -1007,44 +1232,16 @@ function applyStockBarcodeScan(rawBarcode) {
   }
   const matches = findStockRowsByBarcode(barcode);
   if (!matches.length) {
-    setStockBarcodeStatus(`Штрих-код ${barcode} не найден на текущем листе.`, "error");
+    setStockBarcodeStatus(`Штрих-код ${barcode} не найден ни на одном листе. Операция не выполнена.`, "error");
     setStatus(`Штрих-код ${barcode} не найден.`);
     return false;
   }
-  const product = selectStockBarcodeMatch(matches);
-  if (!product) {
-    setStockBarcodeStatus("Операция отменена: товар не выбран.", "error");
+  if (matches.length > 1) {
+    renderStockChoices(matches, { barcode });
+    setStockBarcodeStatus("Этот код есть у нескольких товаров. Выберите нужный лист и товар ниже.");
     return false;
   }
-  if (!Number.isInteger(product.quantity) || product.quantity < 0) {
-    setStockBarcodeStatus(`У товара ${product.brand} ${product.article} некорректный остаток.`, "error");
-    return false;
-  }
-  const isReceipt = state.stockBarcode.mode === "receipt";
-  if (!isReceipt && amount > product.quantity) {
-    setStockBarcodeStatus(`Нельзя списать ${amount}: у ${product.brand} ${product.article} доступно ${product.quantity}.`, "error");
-    return false;
-  }
-  const delta = isReceipt ? amount : -amount;
-  const changed = adjustStock({
-    itemId: getItemIdForRow(product.rowIndex),
-    sheetId: getActiveSheet().id,
-    rowIndex: product.rowIndex,
-    delta,
-    type: isReceipt ? "receipt" : "writeoff",
-    reason: isReceipt ? "Поступление по штрих-коду" : "Списание по штрих-коду",
-    barcode,
-    source: "barcode"
-  });
-  if (!changed) {
-    setStockBarcodeStatus("Операция не выполнена. Проверьте сообщение внизу страницы.", "error");
-    return false;
-  }
-  const nextQuantity = product.quantity + delta;
-  setStockBarcodeStatus(`${isReceipt ? "Приход" : "Списание"}: ${product.brand} ${product.article}, ${amount} шт. Остаток: ${nextQuantity}.`, "success");
-  setStatus(`${product.brand} ${product.article}: остаток ${nextQuantity}.`);
-  selectCell(getCell(product.rowIndex, QUANTITY_COL_INDEX));
-  return true;
+  return performStockOperation(matches[0], "barcode", barcode);
 }
 
 function refreshInventoryLineBarcodes(session) {
@@ -1060,6 +1257,7 @@ function refreshInventoryLineBarcodes(session) {
 
 function renderInventoryPanel() {
   const session = getActiveInventory();
+  updateInventoryLockUI();
   updateHistoryButtons();
   inventoryLinesEl.innerHTML = "";
   const mismatchCount = session ? session.lines.filter((line) => ["surplus", "shortage"].includes(line.status)).length : 0;
@@ -1136,38 +1334,6 @@ function scanInventoryBarcode(barcode) {
   if (setInventoryCount(line.itemId, (line.countedQty ?? 0) + 1)) {
     setStatus(`Найдено: ${line.brand} ${line.article}. Факт: ${(line.countedQty ?? 0) + 1}.`);
   }
-}
-
-let onlineConfirmResolver = null;
-
-function closeOnlineConfirmModal(confirmed = false) {
-  onlineConfirmModalEl.hidden = true;
-  onlineConfirmModalEl.setAttribute("aria-hidden", "true");
-  onlineConfirmModalEl.style.display = "none";
-  const resolver = onlineConfirmResolver;
-  onlineConfirmResolver = null;
-  if (resolver) resolver(confirmed);
-}
-
-function confirmOnlineOperation(operation) {
-  if (onlineConfirmResolver) closeOnlineConfirmModal(false);
-
-  const isLoad = operation === "load";
-  onlineConfirmTitleEl.textContent = isLoad
-    ? "Загрузить данные онлайн?"
-    : "Сохранить данные онлайн?";
-  onlineConfirmMessageEl.textContent = isLoad
-    ? "Текущие данные таблицы будут заменены данными из онлайн-хранилища."
-    : "Текущие данные таблицы будут отправлены в онлайн-хранилище.";
-  onlineConfirmApplyBtn.textContent = isLoad ? "Загрузить онлайн" : "Сохранить онлайн";
-  onlineConfirmModalEl.hidden = false;
-  onlineConfirmModalEl.setAttribute("aria-hidden", "false");
-  onlineConfirmModalEl.style.display = "flex";
-  window.setTimeout(() => onlineConfirmApplyBtn.focus(), 0);
-
-  return new Promise((resolve) => {
-    onlineConfirmResolver = resolve;
-  });
 }
 
 function setCrossImportTarget(td) {
@@ -1746,6 +1912,12 @@ function initTableSearch() {
         nextDraftValues[inputIndex] = event.target.value;
         updateTableSearchDraft(fieldConfig.key, nextDraftValues);
       });
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.repeat || event.isComposing ||
+            event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+        event.preventDefault();
+        controls.apply.click();
+      });
     });
 
     Object.entries(controls.modeButtons).forEach(([modeKey, button]) => {
@@ -1870,12 +2042,7 @@ function appendDataChangeHistory(previousSnapshot, nextSnapshot) {
     state.changeHistory.splice(0, state.changeHistory.length - CHANGE_HISTORY_LIMIT);
   }
 
-  try {
-    localStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify(createPortableTablePayload()));
-    updateSyncStatus({ browser: "Браузер: сохранено" });
-  } catch {
-    updateSyncStatus({ browser: "Браузер: ошибка" });
-  }
+  saveTableData(false);
 }
 
 function normalizeChangeHistoryEntry(entry) {
@@ -2195,8 +2362,11 @@ function normalizeSheetName(value) {
 }
 
 function getNextSheetId() {
-  const id = `sheet-${state.workbook.nextSheetId}`;
-  state.workbook.nextSheetId += 1;
+  let id;
+  do {
+    id = `sheet-${state.workbook.nextSheetId}`;
+    state.workbook.nextSheetId += 1;
+  } while (state.workbook.sheets.some(sheetItem => sheetItem.id === id));
   return id;
 }
 
@@ -2258,6 +2428,7 @@ function renderSheetTabs() {
   });
 
   if (deleteSheetBtn) deleteSheetBtn.disabled = !state.isAdminMode || state.workbook.sheets.length <= 1;
+  updateInventoryLockUI();
 }
 
 function updateTableTitle() {
@@ -2425,27 +2596,6 @@ function normalizeProjectFileName(value, options = {}) {
   return normalized;
 }
 
-function readPersistedProjectName() {
-  try {
-    return normalizeProjectFileName(localStorage.getItem(PROJECT_FILE_NAME_KEY), { allowEmpty: true });
-  } catch {
-    return "";
-  }
-}
-
-function persistProjectName(fileName) {
-  try {
-    if (!fileName) {
-      localStorage.removeItem(PROJECT_FILE_NAME_KEY);
-    } else {
-      localStorage.setItem(PROJECT_FILE_NAME_KEY, fileName);
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function getCurrentProjectFileName(options = {}) {
   const { allowDefault = true } = options;
   const normalized = normalizeProjectFileName(state.fileSystem.projectFileName, { allowEmpty: true });
@@ -2458,19 +2608,31 @@ function updateDocumentTitle() {
   document.title = projectName ? `${projectName} - ${DEFAULT_DOCUMENT_TITLE}` : DEFAULT_DOCUMENT_TITLE;
 }
 
-function setCurrentProjectName(fileName, options = {}) {
-  const { persist = true } = options;
+function setCurrentProjectName(fileName) {
   const normalized = normalizeProjectFileName(fileName, { allowEmpty: true });
   state.fileSystem.projectFileName = normalized;
-  if (persist) persistProjectName(normalized);
   updateDocumentTitle();
   return normalized;
 }
 
 function supportsProjectFileAccess() {
   return typeof window.showOpenFilePicker === "function"
-    && typeof window.showSaveFilePicker === "function"
-    && typeof indexedDB !== "undefined";
+    && typeof window.showSaveFilePicker === "function";
+}
+
+function readLastProjectReference() {
+  try {
+    const value = JSON.parse(localStorage.getItem(LAST_PROJECT_REFERENCE_KEY) || "null");
+    return value && typeof value.name === "string" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastProjectReference(reference) {
+  try {
+    localStorage.setItem(LAST_PROJECT_REFERENCE_KEY, JSON.stringify(reference));
+  } catch { /* File access may work even if browser storage is unavailable. */ }
 }
 
 function isUserAbortError(error) {
@@ -2494,36 +2656,51 @@ function openFileSystemDb() {
 }
 
 async function readPersistedProjectFileHandle() {
-  if (!supportsProjectFileAccess()) return null;
-
+  const reference = readLastProjectReference();
+  // A newer File-input import or failed remember operation must never restore
+  // the previously remembered database, even if deleting its old handle failed.
+  if (reference && (!reference.hasHandle || !reference.ready)) return null;
+  if (typeof indexedDB === "undefined") return null;
+  let db;
   try {
-    const db = await openFileSystemDb();
+    db = await openFileSystemDb();
     return await new Promise((resolve, reject) => {
       const tx = db.transaction(FILE_SYSTEM_STORE_NAME, "readonly");
       const store = tx.objectStore(FILE_SYSTEM_STORE_NAME);
       const request = store.get(PROJECT_FILE_HANDLE_KEY);
 
-      request.addEventListener("success", () => resolve(request.result || null));
       request.addEventListener("error", () => reject(request.error));
-      tx.addEventListener("complete", () => db.close());
+      tx.addEventListener("complete", () => {
+        const stored = request.result;
+        // Migrate handles written by earlier builds, without storing file data.
+        if (!reference && stored && typeof stored.getFile === "function") return resolve(stored);
+        if (!stored?.handle || (reference && stored.referenceId !== reference.id)) return resolve(null);
+        resolve(stored.handle);
+      });
       tx.addEventListener("error", () => reject(tx.error));
       tx.addEventListener("abort", () => reject(tx.error));
     });
   } catch {
     return null;
+  } finally {
+    if (db) db.close();
   }
 }
 
 async function persistProjectFileHandle(handle) {
-  if (!supportsProjectFileAccess()) return false;
-
+  const reference = { id: createStableId(), name: handle?.name || state.fileSystem.projectFileName,
+    hasHandle: Boolean(handle), ready: false };
+  // Only filename and reference metadata, never the contents of the JSON.
+  writeLastProjectReference(reference);
+  if (typeof indexedDB === "undefined") return false;
+  let db;
   try {
-    const db = await openFileSystemDb();
+    db = await openFileSystemDb();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(FILE_SYSTEM_STORE_NAME, "readwrite");
       const store = tx.objectStore(FILE_SYSTEM_STORE_NAME);
       if (handle) {
-        store.put(handle, PROJECT_FILE_HANDLE_KEY);
+        store.put({ handle, referenceId: reference.id }, PROJECT_FILE_HANDLE_KEY);
       } else {
         store.delete(PROJECT_FILE_HANDLE_KEY);
       }
@@ -2531,11 +2708,80 @@ async function persistProjectFileHandle(handle) {
       tx.addEventListener("error", () => reject(tx.error));
       tx.addEventListener("abort", () => reject(tx.error));
     });
-    db.close();
+    writeLastProjectReference({ ...reference, ready: true });
     return true;
   } catch {
     return false;
+  } finally {
+    if (db) db.close();
   }
+}
+
+function showProjectStartup(title, message, { loading = false } = {}) {
+  projectStartupTitleEl.textContent = title;
+  projectStartupMessageEl.textContent = message;
+  reopenLastProjectBtn.hidden = !state.fileSystem.lastProjectFileHandle;
+  reopenLastProjectBtn.disabled = loading;
+  projectStartupEl.hidden = false;
+  // An unopened remembered database should not look like an empty workbook.
+  if (!state.fileSystem.projectFileName && !hasUnsavedProjectChanges()) {
+    projectContentEl.hidden = Boolean(state.fileSystem.lastProjectFileName);
+  }
+}
+
+function hideProjectStartup() {
+  projectStartupEl.hidden = true;
+  projectContentEl.hidden = false;
+}
+
+async function reopenLastProject() {
+  if (projectFileOperationBusy()) return false;
+  const handle = state.fileSystem.lastProjectFileHandle;
+  if (!handle) return openProject();
+  // Reuse the retained handle in this user gesture, so requestPermission can
+  // renew access without sending the user through the file picker again.
+  const opened = await openProjectFromFileHandle(handle);
+  if (!opened) showProjectStartup(`Последний JSON: ${handle.name}`, statusEl.textContent);
+  return opened;
+}
+
+async function rememberCurrentProjectFile() {
+  const handle = state.fileSystem.projectFileHandle;
+  state.fileSystem.lastProjectFileHandle = handle;
+  state.fileSystem.lastProjectFileName = handle?.name || state.fileSystem.projectFileName;
+  if (!await persistProjectFileHandle(handle) && state.fileSystem.lastProjectFileName) {
+    showProjectStartup("Файл открыт, но браузер не смог его запомнить",
+      "Сохранение JSON доступно в этой вкладке. При следующем запуске может понадобиться выбрать файл через «Открыть проект».");
+  }
+}
+
+async function restoreLastProjectAtStartup() {
+  const revision = state.localFile.revision;
+  const epoch = state.localFile.projectEpoch;
+  const reference = readLastProjectReference();
+  state.fileSystem.lastProjectFileName = reference?.name || "";
+  showProjectStartup("Открываю последний JSON…", "Читаю актуальный файл с диска.", { loading: true });
+  const fileHandle = await readPersistedProjectFileHandle();
+  if (state.localFile.revision !== revision || state.localFile.projectEpoch !== epoch || state.fileSystem.projectFileName) return false;
+  state.fileSystem.lastProjectFileHandle = fileHandle;
+  state.fileSystem.lastProjectFileName = fileHandle?.name || reference?.name || "";
+  if (fileHandle) {
+    showProjectStartup(`Открываю «${fileHandle.name}»…`, "Читаю актуальный файл с диска.", { loading: true });
+    const opened = await openProjectFromFileHandle(fileHandle, { startup: true });
+    if (!opened) showProjectStartup(`Последний JSON: ${fileHandle.name}`, statusEl.textContent);
+    return opened;
+  }
+  const name = state.fileSystem.lastProjectFileName;
+  showProjectStartup(name ? `Последний JSON: ${name}` : "Откройте JSON-файл базы",
+    name ? "Браузер запомнил имя, но доступа к самому файлу нет. Выберите этот JSON через «Открыть проект»."
+      : "Выберите файл один раз. В следующих запусках таблица попробует открыть его автоматически.");
+  return false;
+}
+
+function canSaveCurrentProject() {
+  if (!projectContentEl.hidden) return true;
+  setStatus("Сначала откройте последний JSON или выберите другой файл через «Открыть проект».");
+  return false;
 }
 
 async function queryFilePermission(handle, write = false) {
@@ -2585,162 +2831,188 @@ function buildProjectOpenPickerOptions() {
 }
 
 async function restoreProjectFromPayload(payload) {
-  // Восстанавливаем именно снимок таблицы, чтобы после открытия проекта
-  // пользователь получил то же состояние, что было в момент сохранения.
-  const restored = applyStoredTablePayload(payload);
-  if (!restored) return false;
-
-  restoreChangeHistoryFromPayload(payload);
-  // Открытие проекта должно только прочитать выбранный файл. Не ставим здесь
-  // автосохранение в очередь: при несовместимом/частично распознанном формате
-  // оно могло сразу перезаписать исходный JSON урезанным состоянием.
-  saveTableData(false, { syncFile: false });
-  resetHistoryState();
-  return true;
+  // Validate the entire workbook before changing any current data.
+  const error = getProjectCompatibilityError(payload);
+  if (error) throw new Error(error);
+  const previous = JSON.parse(JSON.stringify(serializeCurrentProject()));
+  try {
+    if (!applyStoredTablePayload(payload)) throw new Error("Не удалось восстановить проект.");
+    restoreChangeHistoryFromPayload(payload);
+    resetHistoryState();
+    return true;
+  } catch (error) {
+    applyStoredTablePayload(previous);
+    restoreChangeHistoryFromPayload(previous);
+    resetHistoryState();
+    throw error;
+  }
 }
 
 function getProjectCompatibilityError(payload) {
-  if (!payload || typeof payload !== "object") return "JSON не содержит объект проекта.";
-
-  const version = Number(payload.version);
-  if (payload.kind === "oil-filters-project" && Number.isFinite(version) && version > TABLE_EXPORT_VERSION) {
-    return `Проект создан в более новой версии приложения (${version}). Обновите файлы приложения и повторите загрузку.`;
-  }
-
-  const declaredSheetCount = Number(payload.sheetCount);
-  if (Number.isInteger(declaredSheetCount) && declaredSheetCount > 1) {
-    const actualSheetCount = Array.isArray(payload.workbook?.sheets) ? payload.workbook.sheets.length : 0;
-    if (actualSheetCount !== declaredSheetCount) {
-      return `JSON поврежден: ожидалось листов — ${declaredSheetCount}, найдено — ${actualSheetCount}.`;
-    }
-  }
-
-  return "";
+  return ProjectFileService.validate(payload, { version: TABLE_EXPORT_VERSION,
+    maxRows: FIXED_ROW_COUNT, maxColumns: COLUMN_HEADERS.length });
 }
 
 async function readProjectPayloadFromFile(file) {
-  let rawText = "";
   try {
-    rawText = await file.text();
-  } catch {
-    setStatus("Не удалось прочитать файл проекта.");
-    return null;
-  }
-
-  try {
-    return JSON.parse(rawText);
-  } catch {
-    setStatus(`Файл "${file.name}" содержит невалидный JSON.`);
+    return await ProjectFileService.read(file, { version: TABLE_EXPORT_VERSION,
+      maxRows: FIXED_ROW_COUNT, maxColumns: COLUMN_HEADERS.length });
+  } catch (error) {
+    setStatus(error instanceof SyntaxError
+      ? `Файл "${file.name}" содержит невалидный JSON.`
+      : error.message || "Не удалось прочитать файл проекта.");
     return null;
   }
 }
 
-async function applyProjectPayload(payload, fileName) {
+function hasUnsavedProjectChanges() {
+  return state.localFile.revision !== state.localFile.savedRevision;
+}
+
+function refreshProjectFileStatus() {
+  const name = getCurrentProjectFileName({ allowDefault: false });
+  const local = state.localFile;
+  const hasFile = Boolean(state.fileSystem.projectFileHandle);
+  const autosave = !hasFile
+    ? supportsProjectFileAccess() ? "Автосохранение: сначала сохраните или откройте JSON"
+      : "Автосохранение недоступно в этом браузере — скачивайте JSON вручную"
+    : local.lastSaveError ? "Автосохранение приостановлено"
+      : !local.writePermission ? "Автосохранение: нет доступа на запись"
+        : "Автосохранение: каждые 5 минут";
+  enableProjectAutosaveBtn.hidden = !hasFile || (local.writePermission && !local.lastSaveError);
+  enableProjectAutosaveBtn.textContent = local.lastSaveError && local.writePermission
+    ? "Повторить автосохранение" : "Разрешить автосохранение";
+  updateSyncStatus({
+    file: name ? `JSON: ${name}` : "JSON: новая база",
+    changes: local.lastSaveError ? "Ошибка: JSON не сохранён"
+      : hasUnsavedProjectChanges() ? "Есть несохранённые изменения"
+        : local.lastSavedAt ? `Сохранено в ${local.lastSavedAt}`
+          : name ? "Загружен из JSON" : "Сохраните новую базу в JSON",
+    autosave
+  });
+}
+
+function startProjectAutosave() {
+  if (state.localFile.autosaveTimer !== null) clearInterval(state.localFile.autosaveTimer);
+  state.localFile.autosaveTimer = state.fileSystem.projectFileHandle
+    ? window.setInterval(() => { void autosaveProject(); }, PROJECT_AUTOSAVE_INTERVAL_MS)
+    : null;
+}
+
+async function autosaveProject() {
+  const local = state.localFile;
+  if (!state.fileSystem.projectFileHandle || !local.writePermission || local.lastSaveError
+    || local.isSaving || local.isOpening || local.isPicking || !hasUnsavedProjectChanges()) return false;
+  return saveProjectToFileHandle(state.fileSystem.projectFileHandle, { automatic: true });
+}
+
+async function enableProjectAutosave() {
+  if (projectFileOperationBusy()) return false;
+  const fileHandle = state.fileSystem.projectFileHandle;
+  if (!fileHandle) return saveProjectAs();
+  // This button is a user gesture: it may request write permission. Timer ticks
+  // only query permission and never show recurring prompts or download files.
+  return saveProjectToFileHandle(fileHandle);
+}
+
+function confirmProjectReplacement() {
+  closeCellEditor();
+  return !hasUnsavedProjectChanges() || window.confirm(
+    "В таблице есть изменения, ещё не сохранённые в JSON. Заменить их? Чтобы сначала сохранить файл, нажмите «Отмена» и «Сохранить проект»."
+  );
+}
+
+function projectFileOperationBusy() {
+  if (!state.localFile.isSaving && !state.localFile.isOpening && !state.localFile.isPicking) return false;
+  setStatus("Дождитесь завершения открытия или сохранения JSON.");
+  return true;
+}
+
+async function applyProjectPayload(payload, fileName, source = {}) {
   const compatibilityError = getProjectCompatibilityError(payload);
   if (compatibilityError) {
     setStatus(compatibilityError);
     return false;
   }
 
-  const restored = await restoreProjectFromPayload(payload);
-  if (!restored) {
-    setStatus(`Файл "${fileName}" не похож на проект этой таблицы.`);
+  try {
+    await restoreProjectFromPayload(payload);
+  } catch (error) {
+    setStatus(`Файл не открыт: ${error.message}`);
     return false;
   }
 
+  state.fileSystem.projectFileHandle = source.handle || null;
+  state.localFile.sourceText = source.text ?? null;
+  state.localFile.revision = 0;
+  state.localFile.savedRevision = 0;
+  state.localFile.lastSaveError = "";
+  state.localFile.lastSavedAt = "";
+  state.localFile.writePermission = false;
+  state.localFile.projectEpoch += 1;
   setCurrentProjectName(fileName);
-  setStatus(`Проект "${fileName}" открыт. Загружено листов: ${state.workbook.sheets.length}.`);
+  hideProjectStartup();
+  startProjectAutosave();
+  if (source.handle) state.localFile.writePermission = await queryFilePermission(source.handle, true);
+  refreshProjectFileStatus();
+  // IndexedDB remembers only a file handle, never the contents of the project.
+  await rememberCurrentProjectFile();
+  setStatus(fileName ? `Проект "${fileName}" открыт. Загружено листов: ${state.workbook.sheets.length}.`
+    : "Создана новая база. После заполнения сохраните её в JSON.");
   return true;
 }
 
-async function saveProjectToFileHandle(fileHandle) {
-  if (!fileHandle) return false;
-  closeCellEditor();
-  saveActiveSheetSnapshot();
-  updateSyncStatus({ file: "Файл: сохраняю..." });
-
-  const hasPermission = await ensureProjectFileHandlePermission(fileHandle, true);
-  if (!hasPermission) {
-    updateSyncStatus({ file: "Файл: нет доступа" });
-    setStatus("Нет доступа к файлу проекта для записи.");
-    return false;
-  }
-
-  try {
-    const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(serializeCurrentProject(), null, 2));
-    await writable.close();
-
-    state.fileSystem.projectFileHandle = fileHandle;
-    setCurrentProjectName(fileHandle.name);
-    await persistProjectFileHandle(fileHandle);
-    updateSyncStatus({ file: `Файл: ${fileHandle.name}` });
-    setStatus(`Проект "${fileHandle.name}" сохранен локально.`);
-    return true;
-  } catch {
-    updateSyncStatus({ file: "Файл: ошибка записи" });
-    setStatus("Не удалось записать файл проекта.");
-    return false;
-  }
-}
-
-function queueProjectFileSave() {
-  if (state.isRestoringHistory || !state.fileSystem.projectFileHandle) return;
-
-  if (state.localFile.saveTimer) {
-    clearTimeout(state.localFile.saveTimer);
-  }
-
-  state.localFile.saveTimer = window.setTimeout(() => {
-    state.localFile.saveTimer = null;
-    saveProjectToCurrentFile({ silent: true });
-  }, LOCAL_FILE_SAVE_DELAY_MS);
-}
-
-async function saveProjectToCurrentFile(options = {}) {
-  const { silent = false } = options;
-  const fileHandle = state.fileSystem.projectFileHandle;
-  if (!fileHandle) return false;
-
-  if (state.localFile.isSaving) {
-    queueProjectFileSave();
-    return false;
-  }
-
+async function saveProjectToFileHandle(fileHandle, options = {}) {
+  const { automatic = false } = options;
+  if (!fileHandle || projectFileOperationBusy() || !canSaveCurrentProject()) return false;
+  // Autosave records committed edits without closing the editor or moving the
+  // caret. Enter/blur commits the cell through the existing validation/history.
+  if (!automatic) closeCellEditor();
   state.localFile.isSaving = true;
   try {
-    updateSyncStatus({ file: "Файл: сохраняю..." });
-    const hasPermission = await ensureProjectFileHandlePermission(fileHandle, true);
+    // Freeze one consistent project before waiting on permissions or disk I/O.
+    const text = JSON.stringify(serializeCurrentProject(), null, 2);
+    const revision = state.localFile.revision;
+    updateSyncStatus({ changes: "Сохраняю JSON…" });
+    const hasPermission = automatic ? await queryFilePermission(fileHandle, true)
+      : await ensureProjectFileHandlePermission(fileHandle, true);
     if (!hasPermission) {
-      state.localFile.lastSaveError = "permission-denied";
-      updateSyncStatus({ file: "Файл: нет доступа" });
-      if (!silent) setStatus("Нет доступа к файлу проекта для записи.");
-      return false;
+      state.localFile.writePermission = false;
+      throw new Error("Нет доступа к файлу для записи. Сохраните JSON под другим именем.");
     }
-
-    const writable = await fileHandle.createWritable();
-    await writable.write(JSON.stringify(serializeCurrentProject(), null, 2));
-    await writable.close();
-
+    const changedFile = state.fileSystem.projectFileHandle !== fileHandle;
+    await ProjectFileService.write(fileHandle, text, {
+      handle: state.fileSystem.projectFileHandle, text: state.localFile.sourceText
+    });
+    state.fileSystem.projectFileHandle = fileHandle;
+    state.localFile.sourceText = text;
+    state.localFile.savedRevision = revision;
     state.localFile.lastSaveError = "";
-    updateSyncStatus({ file: `Файл: ${fileHandle.name}` });
-    if (!silent) setStatus(`Проект "${fileHandle.name}" сохранен локально.`);
+    state.localFile.writePermission = true;
+    state.localFile.lastSavedAt = new Date().toLocaleTimeString("ru-RU");
+    setCurrentProjectName(fileHandle.name);
+    if (changedFile) {
+      startProjectAutosave();
+      await rememberCurrentProjectFile();
+    }
+    refreshProjectFileStatus();
+    if (!automatic) setStatus(hasUnsavedProjectChanges()
+      ? "JSON сохранён, но во время записи появились новые изменения. Сохраните ещё раз."
+      : `JSON "${fileHandle.name}" сохранён. Листов: ${state.workbook.sheets.length}. Можно переносить файл.`);
     return true;
   } catch (error) {
     state.localFile.lastSaveError = error?.message || "unknown";
-    updateSyncStatus({ file: "Файл: ошибка записи" });
-    if (!silent) {
-      setStatus("Не удалось записать файл проекта.");
-    }
+    refreshProjectFileStatus();
+    setStatus(error.message || "Не удалось записать JSON. Изменения остаются в открытой таблице.");
     return false;
   } finally {
     state.localFile.isSaving = false;
   }
 }
 
-async function saveProjectAs(options = {}) {
-  const { skipLocalAutosave = false } = options;
-  if (!skipLocalAutosave && !saveTableData(false)) return false;
+async function saveProjectAs() {
+  if (projectFileOperationBusy() || !canSaveCurrentProject()) return false;
+  closeCellEditor();
 
   if (!supportsProjectFileAccess()) {
     const fileName = promptProjectFileName();
@@ -2755,12 +3027,17 @@ async function saveProjectAs(options = {}) {
       return false;
     }
 
-    setCurrentProjectName(normalizedName);
     return downloadProjectFile(normalizedName);
   }
 
   try {
-    const fileHandle = await window.showSaveFilePicker(buildProjectSavePickerOptions());
+    state.localFile.isPicking = true;
+    let fileHandle;
+    try {
+      fileHandle = await window.showSaveFilePicker(buildProjectSavePickerOptions());
+    } finally {
+      state.localFile.isPicking = false;
+    }
     return saveProjectToFileHandle(fileHandle);
   } catch (error) {
     if (isUserAbortError(error)) {
@@ -2774,79 +3051,72 @@ async function saveProjectAs(options = {}) {
 }
 
 async function saveProject() {
-  if (!saveTableData(false)) return false;
+  if (projectFileOperationBusy()) return false;
+  closeCellEditor();
 
   if (!supportsProjectFileAccess()) {
     const currentName = getCurrentProjectFileName({ allowDefault: false });
-    if (!currentName) return saveProjectAs({ skipLocalAutosave: true });
+    if (!currentName) return saveProjectAs();
     return downloadProjectFile(currentName);
   }
 
-  let fileHandle = state.fileSystem.projectFileHandle;
-  if (!fileHandle) {
-    fileHandle = await readPersistedProjectFileHandle();
-    if (fileHandle) state.fileSystem.projectFileHandle = fileHandle;
-  }
-
-  if (!fileHandle) {
-    return saveProjectAs({ skipLocalAutosave: true });
-  }
-
-  const hasPermission = await ensureProjectFileHandlePermission(fileHandle, true);
-  if (!hasPermission) {
-    return saveProjectAs({ skipLocalAutosave: true });
-  }
-
-  return saveProjectToFileHandle(fileHandle);
+  const fileHandle = state.fileSystem.projectFileHandle;
+  return fileHandle ? saveProjectToFileHandle(fileHandle) : saveProjectAs();
 }
 
-async function openProjectFromFileHandle(fileHandle) {
+async function openProjectFromFileHandle(fileHandle, options = {}) {
   if (!fileHandle) {
     setStatus("Файл проекта не выбран.");
     return false;
   }
 
-  const previousFileHandle = state.fileSystem.projectFileHandle;
-  const previousProjectName = state.fileSystem.projectFileName;
-
-  const hasPermission = await ensureProjectFileHandlePermission(fileHandle, false);
-  if (!hasPermission) {
-    setStatus("Нет доступа к файлу проекта для чтения.");
-    return false;
-  }
-
+  if (projectFileOperationBusy()) return false;
+  state.localFile.isOpening = true;
   try {
-    const file = await fileHandle.getFile();
-    const payload = await readProjectPayloadFromFile(file);
-    if (!payload) return false;
-
-    state.fileSystem.projectFileHandle = fileHandle;
-    setCurrentProjectName(file.name);
-    await persistProjectFileHandle(fileHandle);
-    await ensureProjectFileHandlePermission(fileHandle, true);
-
-    const applied = await applyProjectPayload(payload, file.name);
-    if (!applied) {
-      state.fileSystem.projectFileHandle = previousFileHandle;
-      setCurrentProjectName(previousProjectName);
+    const hasPermission = options.startup
+      ? await queryFilePermission(fileHandle, false)
+      : await ensureProjectFileHandlePermission(fileHandle, false);
+    if (!hasPermission) {
+      setStatus(`Для чтения «${fileHandle.name}» нажмите «Открыть последний JSON» и разрешите доступ. Другой файл можно выбрать через «Открыть проект».`);
       return false;
     }
-
-    return true;
+    const file = await fileHandle.getFile();
+    const source = await readProjectPayloadFromFile(file);
+    if (!source) return false;
+    if (options.startup && hasUnsavedProjectChanges()) {
+      setStatus("Автооткрытие отменено: в новой базе уже есть изменения.");
+      return false;
+    }
+    if (!options.startup && !confirmProjectReplacement()) return false;
+    const applied = await applyProjectPayload(source.payload, file.name, { handle: fileHandle, text: source.text });
+    if (applied && !options.startup && !state.localFile.writePermission) {
+      state.localFile.writePermission = await ensureProjectFileHandlePermission(fileHandle, true);
+      refreshProjectFileStatus();
+    }
+    return applied;
   } catch {
-    setStatus("Не удалось открыть файл проекта.");
+    setStatus("Не удалось прочитать JSON. Выберите файл через «Открыть проект».");
     return false;
+  } finally {
+    state.localFile.isOpening = false;
   }
 }
 
 async function openProject() {
+  if (projectFileOperationBusy()) return false;
   if (!supportsProjectFileAccess()) {
     openProjectFileInputEl.click();
     return false;
   }
 
   try {
-    const [fileHandle] = await window.showOpenFilePicker(buildProjectOpenPickerOptions());
+    state.localFile.isPicking = true;
+    let fileHandle;
+    try {
+      [fileHandle] = await window.showOpenFilePicker(buildProjectOpenPickerOptions());
+    } finally {
+      state.localFile.isPicking = false;
+    }
     return openProjectFromFileHandle(fileHandle || null);
   } catch (error) {
     if (isUserAbortError(error)) {
@@ -3021,117 +3291,20 @@ function applyStoredTablePayload(payload) {
   return false;
 }
 
-function getSupabaseHeaders(extraHeaders = {}) {
-  return {
-    apikey: SUPABASE_PUBLISHABLE_KEY,
-    Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
-    "Content-Type": "application/json",
-    ...extraHeaders
-  };
-}
-
-function getSupabaseProjectUrl() {
-  const query = new URLSearchParams({
-    id: `eq.${SUPABASE_PROJECT_ID}`,
-    select: "payload"
-  });
-  return `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE_NAME}?${query.toString()}`;
-}
-
-function getSupabaseUpsertUrl() {
-  return `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE_NAME}`;
-}
-
-async function saveTableDataToCloud(payload = createPortableTablePayload()) {
-  if (state.cloud.isSaving) {
-    setStatus("Онлайн-сохранение уже выполняется.");
-    return false;
-  }
-
-  state.cloud.isSaving = true;
-  updateSyncStatus({ cloud: "Онлайн: сохраняю..." });
-  try {
-    const response = await fetch(getSupabaseUpsertUrl(), {
-      method: "POST",
-      headers: getSupabaseHeaders({
-        Prefer: "resolution=merge-duplicates,return=minimal"
-      }),
-      body: JSON.stringify({
-        id: SUPABASE_PROJECT_ID,
-        payload,
-        updated_at: new Date().toISOString()
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    state.cloud.lastSaveError = "";
-    updateSyncStatus({ cloud: "Онлайн: сохранено" });
-    return true;
-  } catch (error) {
-    state.cloud.lastSaveError = error?.message || "unknown";
-    updateSyncStatus({ cloud: "Онлайн: ошибка" });
-    setStatus("Локально сохранено. Онлайн-сохранение пока не удалось.");
-    return false;
-  } finally {
-    state.cloud.isSaving = false;
-  }
-}
-
-async function flushCloudSave(payload = createPortableTablePayload()) {
-  return saveTableDataToCloud(payload);
-}
-
-async function loadTableDataFromCloud() {
-  updateSyncStatus({ cloud: "Онлайн: загружаю..." });
-  try {
-    const response = await fetch(getSupabaseProjectUrl(), {
-      method: "GET",
-      headers: getSupabaseHeaders()
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const rows = await response.json();
-    const payload = rows?.[0]?.payload;
-    if (!payload || Object.keys(payload).length === 0) {
-      updateSyncStatus({ cloud: "Онлайн: пусто" });
-      return false;
-    }
-
-    const loaded = applyStoredTablePayload(payload);
-    if (loaded) {
-      restoreChangeHistoryFromPayload(payload);
-      saveTableData(false, { syncFile: false });
-      updateSyncStatus({ cloud: "Онлайн: загружено" });
-    }
-    return loaded;
-  } catch (error) {
-    state.cloud.lastSaveError = error?.message || "unknown";
-    updateSyncStatus({ cloud: "Онлайн: недоступно" });
-    return false;
-  }
-}
 
 function saveTableData(showStatus = false, options = {}) {
-  const { syncFile = true } = options;
-
   try {
-    localStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify(createPortableTablePayload()));
-    updateSyncStatus({
-      browser: "Браузер: сохранено",
-      ...(syncFile && state.fileSystem.projectFileHandle ? { file: "Файл: ожидает" } : {})
-    });
-    if (syncFile) queueProjectFileSave();
-    if (showStatus) setStatus("Таблица сохранена.");
+    // Existing editing/stock flows call this synchronous hook. Capture the active
+    // sheet and validate serializability. The periodic timer writes dirty data;
+    // edits never reset the timer, so continuous work cannot postpone saving.
+    JSON.stringify(createPortableTablePayload());
+    state.localFile.revision += 1;
+    refreshProjectFileStatus();
+    if (showStatus) setStatus("Изменения внесены и ожидают сохранения в JSON.");
     return true;
   } catch {
-    updateSyncStatus({ browser: "Браузер: ошибка" });
-    setStatus("Не удалось сохранить таблицу.");
+    updateSyncStatus({ changes: "Ошибка подготовки JSON" });
+    setStatus("Не удалось подготовить данные для сохранения.");
     return false;
   }
 }
@@ -3213,21 +3386,6 @@ function applyMergeSnapshot(merges) {
   });
 }
 
-function loadTableData() {
-  try {
-    const raw = localStorage.getItem(TABLE_STORAGE_KEY);
-    if (!raw) return false;
-    const payload = JSON.parse(raw);
-    const loaded = applyStoredTablePayload(payload);
-    if (loaded) {
-      restoreChangeHistoryFromPayload(payload);
-      saveTableData(false, { syncFile: false });
-    }
-    return loaded;
-  } catch {
-    return false;
-  }
-}
 
 function resetHistoryState() {
   state.history = [];
@@ -3243,6 +3401,8 @@ function promptProjectFileName(initialValue = TABLE_EXPORT_FILE_NAME) {
 }
 
 function downloadProjectFile(fileName = TABLE_EXPORT_FILE_NAME) {
+  if (projectFileOperationBusy() || !canSaveCurrentProject()) return false;
+  closeCellEditor();
   try {
     // Fallback для браузеров без File System Access API: проект скачивается как файл.
     const payload = serializeCurrentProject();
@@ -3255,9 +3415,13 @@ function downloadProjectFile(fileName = TABLE_EXPORT_FILE_NAME) {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    setCurrentProjectName(link.download);
-    updateSyncStatus({ file: `Файл: скачан ${link.download}` });
-    setStatus(`Проект "${link.download}" выгружен как JSON-файл.`);
+    // A downloaded copy does not update the original bound file.
+    if (!state.fileSystem.projectFileHandle) {
+      setCurrentProjectName(link.download);
+      state.localFile.savedRevision = state.localFile.revision;
+    }
+    refreshProjectFileStatus();
+    setStatus(`JSON "${link.download}" передан на скачивание. Листов: ${payload.workbook.sheets.length}. Для переноса используйте эту копию из загрузок.`);
     return true;
   } catch {
     updateSyncStatus({ file: "Файл: ошибка скачивания" });
@@ -3266,28 +3430,40 @@ function downloadProjectFile(fileName = TABLE_EXPORT_FILE_NAME) {
   }
 }
 
-async function saveProjectOnline() {
-  closeCellEditor();
-  saveActiveSheetSnapshot();
-  if (!saveTableData(false, { syncFile: false })) return false;
-
-  const saved = await flushCloudSave();
-  setStatus(saved ? "Данные сохранены онлайн." : "Онлайн-сохранение пока не удалось.");
-  return saved;
-}
-
-async function loadProjectOnline() {
-  closeCellEditor();
-  const loaded = await loadTableDataFromCloud();
-  setStatus(loaded ? "Онлайн-данные таблицы загружены." : "Не удалось загрузить онлайн-данные.");
-  return loaded;
-}
 
 function downloadLocalProjectCopy() {
-  closeCellEditor();
-  saveActiveSheetSnapshot();
-  if (!saveTableData(false, { syncFile: false })) return false;
   return downloadProjectFile(getCurrentProjectFileName({ allowDefault: true }));
+}
+
+function downloadBrowserBackup() {
+  // Migration only: preserve the old cache verbatim as a separate file. Never
+  // apply it to the table and never delete the user's only possible old copy.
+  try {
+    const raw = localStorage.getItem(TABLE_STORAGE_KEY);
+    if (!raw) return;
+    const url = URL.createObjectURL(new Blob([raw], { type: "application/json;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "browser-backup.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setStatus("Прежняя копия браузера скачана как browser-backup.json. Её можно проверить через «Открыть проект».");
+  } catch {
+    setStatus("Не удалось скачать прежнюю копию браузера.");
+  }
+}
+
+async function newProject() {
+  if (projectFileOperationBusy() || !confirmProjectReplacement()) return false;
+  state.localFile.isOpening = true;
+  try {
+    return await applyProjectPayload({ workbook: { sheets: [createSheet("sheet-1", DEFAULT_SHEET_NAME)],
+      activeSheetId: "sheet-1", nextSheetId: 2 } }, "");
+  } finally {
+    state.localFile.isOpening = false;
+  }
 }
 
 async function importProjectFile(file) {
@@ -3296,15 +3472,16 @@ async function importProjectFile(file) {
     return false;
   }
 
-  const payload = await readProjectPayloadFromFile(file);
-  if (!payload) {
+  if (projectFileOperationBusy()) return false;
+  state.localFile.isOpening = true;
+  try {
+    const source = await readProjectPayloadFromFile(file);
+    if (!source || !confirmProjectReplacement()) return false;
+    return await applyProjectPayload(source.payload, file.name, { text: source.text });
+  } finally {
     openProjectFileInputEl.value = "";
-    return false;
+    state.localFile.isOpening = false;
   }
-
-  const applied = await applyProjectPayload(payload, file.name);
-  openProjectFileInputEl.value = "";
-  return applied;
 }
 
 function refreshIndices() {
@@ -4643,6 +4820,8 @@ document.addEventListener("click", (e) => {
 document.addEventListener("copy", copySelectedArticle);
 
 document.addEventListener("paste", (e) => {
+  if (e.target.closest?.("input, textarea, select, [contenteditable='true']")) return;
+  if (getActiveInventory()) { e.preventDefault(); showInventoryLockNotice(); return; }
   if (!state.isAdminMode) return;
   if (isCrossImportOpen() || isCrossEditOpen()) return;
   if (isCellEditingNow()) return;
@@ -4720,6 +4899,7 @@ sheet.addEventListener("keydown", (e) => {
 });
 
 document.addEventListener("keydown", async (e) => {
+  if (e.target.closest?.("input, textarea, select, [contenteditable='true']")) return;
   const ctrlOrCmd = e.ctrlKey || e.metaKey;
   const key = e.key.toLowerCase();
   const isEditing = isCellEditingNow();
@@ -4907,6 +5087,11 @@ openProjectBtn.addEventListener("click", async () => {
   await openProject();
 });
 
+reopenLastProjectBtn.addEventListener("click", reopenLastProject);
+chooseStartupProjectBtn.addEventListener("click", openProject);
+
+downloadBrowserBackupBtn.addEventListener("click", downloadBrowserBackup);
+
 saveProjectBtn.addEventListener("click", async () => {
   await saveProject();
 });
@@ -4915,36 +5100,8 @@ saveProjectAsBtn.addEventListener("click", async () => {
   await saveProjectAs();
 });
 
-loadProjectOnlineBtn.addEventListener("click", async () => {
-  if (!await confirmOnlineOperation("load")) {
-    setStatus("Онлайн-загрузка отменена.");
-    return;
-  }
-  await loadProjectOnline();
-});
+enableProjectAutosaveBtn.addEventListener("click", enableProjectAutosave);
 
-saveProjectOnlineBtn.addEventListener("click", async () => {
-  if (!await confirmOnlineOperation("save")) {
-    setStatus("Онлайн-сохранение отменено.");
-    return;
-  }
-  await saveProjectOnline();
-});
-
-onlineConfirmCancelBtn.addEventListener("click", () => {
-  closeOnlineConfirmModal(false);
-});
-
-onlineConfirmApplyBtn.addEventListener("click", () => {
-  closeOnlineConfirmModal(true);
-});
-
-onlineConfirmModalEl.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") {
-    event.preventDefault();
-    closeOnlineConfirmModal(false);
-  }
-});
 
 downloadProjectCopyBtn.addEventListener("click", () => {
   downloadLocalProjectCopy();
@@ -4965,15 +5122,38 @@ inventoryCancelBtn.addEventListener("click", () => { const session = getActiveIn
 inventoryFilterEl.addEventListener("change", () => { state.inventory.ui.filter = inventoryFilterEl.value; renderInventoryPanel(); });
 inventoryBarcodeFormEl.addEventListener("submit", (event) => { event.preventDefault(); scanInventoryBarcode(inventoryBarcodeEl.value); inventoryBarcodeEl.value = ""; inventoryBarcodeEl.focus(); });
 
+document.getElementById("inventoryLockOpen").addEventListener("click", () => {
+  inventoryPanelEl.hidden = false;
+  renderInventoryPanel();
+  inventoryPanelEl.scrollIntoView({ block: "start", behavior: "smooth" });
+});
+
 stockBarcodeOpenBtn.addEventListener("click", openStockBarcodeModal);
 stockBarcodeCloseBtn.addEventListener("click", closeStockBarcodeModal);
 stockBarcodeModeReceiptBtn.addEventListener("click", () => setStockBarcodeMode("receipt"));
 stockBarcodeModeWriteoffBtn.addEventListener("click", () => setStockBarcodeMode("writeoff"));
+stockEntryBarcodeBtn.addEventListener("click", () => setStockEntryMode("barcode"));
+stockEntryManualBtn.addEventListener("click", () => setStockEntryMode("manual"));
+stockManualSearchEl.addEventListener("input", searchStockManually);
+stockBarcodeAmountEl.addEventListener("input", () => {
+  if (state.stockBarcode.selected) stockConfirmProductBtn.textContent = `${state.stockBarcode.mode === "receipt" ? "Оприходовать" : "Продать"} ${Number(stockBarcodeAmountEl.value) || ""} шт.`;
+});
+stockConfirmProductBtn.addEventListener("click", () => {
+  const product = state.stockBarcode.selected;
+  if (product) performStockOperation(product, state.stockBarcode.pending ? "barcode" : "manual", state.stockBarcode.pending?.barcode ?? null);
+});
+document.getElementById("stockCancelSelection").addEventListener("click", () => {
+  clearStockSelection();
+  setStockBarcodeStatus("Выбор отменён. Остатки не изменены.");
+  focusStockInput();
+});
+stockBarcodeModalEl.addEventListener("paste", event => event.stopPropagation());
 stockBarcodeFormEl.addEventListener("submit", (event) => {
   event.preventDefault();
-  applyStockBarcodeScan(stockBarcodeInputEl.value);
-  stockBarcodeInputEl.value = "";
-  window.setTimeout(() => stockBarcodeInputEl.focus(), 0);
+  unlockStockSound();
+  try { applyStockBarcodeScan(stockBarcodeInputEl.value); }
+  catch (error) { setStockBarcodeStatus(error.message || "Не удалось обработать штрих-код.", "error"); }
+  finally { stockBarcodeInputEl.value = ""; focusStockInput(); }
 });
 stockBarcodeModalEl.addEventListener("keydown", (event) => {
   event.stopPropagation();
@@ -5094,6 +5274,7 @@ redoActionBtn.addEventListener("click", () => {
 });
 
 document.getElementById("merge").addEventListener("click", () => {
+  if (!requireAdminMode()) return;
   if (state.selected.size < 2) {
     setStatus("Для объединения выделите минимум 2 ячейки.");
     return;
@@ -5142,6 +5323,7 @@ document.getElementById("merge").addEventListener("click", () => {
 });
 
 document.getElementById("unmerge").addEventListener("click", () => {
+  if (!requireAdminMode()) return;
   if (!hasMergedCells()) {
     setStatus("Объединенных ячеек нет.");
     return;
@@ -5159,36 +5341,38 @@ async function initApp() {
     buildBadgeEl.textContent = `Сборка: ${APP_BUILD_ID}`;
     buildBadgeEl.title = "Если этот бейдж не виден, у вас открыта не текущая папка table.";
   }
-  state.fileSystem.projectFileName = readPersistedProjectName();
+  buildTable();
+  wrapCurrentTableInWorkbook();
+  resetHistoryState();
   updateDocumentTitle();
-
-  if (supportsProjectFileAccess() && !state.fileSystem.projectFileHandle) {
-    state.fileSystem.projectFileHandle = await readPersistedProjectFileHandle();
-    if (state.fileSystem.projectFileHandle?.name) {
-      setCurrentProjectName(state.fileSystem.projectFileHandle.name);
-      updateSyncStatus({ file: `Файл: ${state.fileSystem.projectFileHandle.name}` });
-    }
+  updateSyncStatus();
+  setStatus("Откройте JSON-файл базы. Данные из памяти браузера не загружаются.");
+  try {
+    downloadBrowserBackupBtn.hidden = !localStorage.getItem(TABLE_STORAGE_KEY);
+  } catch {
+    downloadBrowserBackupBtn.hidden = true;
   }
 
-  if (loadTableData()) {
-    setStatus("Локальные данные таблицы загружены.");
-  } else {
-    buildTable();
-    wrapCurrentTableInWorkbook();
-    setStatus("Создана новая локальная таблица.");
-  }
-
-  updateSyncStatus({ cloud: "Онлайн: по запросу" });
-
-  ensureWorkbookInitialized();
-  saveActiveSheetSnapshot();
-  renderSheetTabs();
-  pushHistorySnapshot();
   setCrossImportModalVisibility(false);
   setChangeHistoryModalVisibility(false);
   setQuantityAdjustModalVisibility(false);
   updateAdminModeUI();
+
+  await restoreLastProjectAtStartup();
 }
+
+window.addEventListener("beforeunload", (event) => {
+  closeCellEditor();
+  if (!hasUnsavedProjectChanges() && !state.localFile.isSaving) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
+
+document.addEventListener("visibilitychange", () => {
+  // Best effort before a background tab is throttled; unload still warns until
+  // a write has actually completed. Never rely on async writes during unload.
+  if (document.visibilityState === "hidden") void autosaveProject();
+});
 
 window.addEventListener("resize", () => {
   updateFillHandle();
@@ -5197,4 +5381,4 @@ window.addEventListener("resize", () => {
   if (td && !rowControlsEl.hidden) showRowControlsForCell(td);
 });
 
-initApp();
+window.appReady = initApp();

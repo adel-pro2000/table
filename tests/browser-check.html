@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><title>Проверка продаж и старых JSON</title>
+<style>body{font:14px system-ui;margin:12px}button{padding:8px;margin-right:8px}iframe{width:100%;height:85vh;border:1px solid #ccc}#result{white-space:pre-wrap}</style>
+<button id="run">Проверить на тестовых данных</button><button id="demo">Открыть тестовый проект v7</button><button id="lock">Показать блокировку</button><span id="result">Используются только вымышленные данные на отдельном локальном адресе.</span>
+<iframe id="app" src="../index.html" title="Тестовая таблица"></iframe>
+<script>
+const frame = document.getElementById('app');
+const fixture = () => ({ kind: 'oil-filters-project', version: 7, sheetCount: 2, workbook: {
+  activeSheetId: 'sheet-1', nextSheetId: 3, sheets: [
+    { id: 'sheet-1', name: 'ТЕСТ Фильтры', snapshot: { rows: 3, data: { 0: ['MANN','A1','10','00123','CROSS\nTEXT','Toyota','3/4'] }, merges: [], nextMasterId: 1 } },
+    { id: 'sheet-2', name: 'ТЕСТ Свечи', snapshot: { rows: 3, data: { 0: ['NGK','B2','4','00999','','',''], 1: ['DUP','C3','7','00123','','',''] }, merges: [], nextMasterId: 1 } }
+  ] }, changeHistory: [] });
+function load(win, payload) { if (!win.applyStoredTablePayload(payload)) throw Error('Не удалось загрузить JSON'); win.restoreChangeHistoryFromPayload(payload); }
+function assert(value, message) { if (!value) throw Error(message); }
+document.getElementById('demo').onclick = () => { const w=frame.contentWindow; load(w, fixture()); w.closeStockBarcodeModal(); w.openStockBarcodeModal(); };
+document.getElementById('lock').onclick = () => { const w=frame.contentWindow, p=fixture(); p.inventory={activeSessionId:'lock',sessions:[{id:'lock',number:'ТЕСТ-ИНВ',status:'counting',scope:{sheetIds:['sheet-1']},lines:[],unknownBarcodes:[]}]}; w.closeStockBarcodeModal();load(w,p); };
+document.getElementById('run').onclick = async () => {
+  let w=frame.contentWindow, d=w.document;
+  const result=document.getElementById('result');
+  let passed=0;
+  const check=(condition,message)=>{assert(condition,message);passed++;};
+  try {
+    await w.appReady;
+    // Actual application loaders and serializer, with no production project or file handle.
+    const oldArray = { rows: 2, data: [['OLD','001','8','00001','A\nB','CAR','']] };
+    load(w, oldArray); let exported=w.serializeCurrentProject();
+    check(JSON.stringify(exported.workbook.sheets[0].snapshot.data[0])===JSON.stringify(oldArray.data[0]),'Legacy array lost values');
+    check(exported.version===8,'Wrong export version');
+    const structured={rows:3,data:{1:['OLD','002','6','00002','CROSS','','']},merges:[],nextMasterId:3};
+    load(w,{snapshot:structured});
+    check(JSON.stringify(w.serializeCurrentProject().workbook.sheets[0].snapshot.data)===JSON.stringify(structured.data),'Old structured snapshot lost values');
+    const oldWorkbook=fixture();oldWorkbook.workbook.sheets[1].snapshot.data=Object.values(oldWorkbook.workbook.sheets[1].snapshot.data);
+    load(w,oldWorkbook);
+    check(w.findStockRowsByBarcode('00999').length===1,'Old inactive array sheet not searchable');
+    const historical={rows:3,tbodyHtml:d.querySelector('#sheet tbody').innerHTML,nextMasterId:1,mergedMasterIds:[]};
+    const htmlWorkbook=fixture();htmlWorkbook.workbook.sheets[1].snapshot=historical;
+    load(w,htmlWorkbook);
+    check(w.findStockRowsByBarcode('00123').length===2,'Old inactive HTML sheet not searchable');
+    const htmlProduct=w.findStockRowsByBarcode('00123').find(product=>product.sheetId==='sheet-2');
+    check(Boolean(w.adjustStock({itemId:htmlProduct.itemId,sheetId:htmlProduct.sheetId,delta:-1,type:'writeoff',reason:'Продажа'})),'Sale on inactive historical sheet failed');
+    w.switchToSheet('sheet-2');
+    check(w.serializeCurrentProject().workbook.sheets[1].snapshot.data[0][2]==='9','Switching to historical sheet lost sale');
+    load(w,historical);
+    check(w.findStockRowsByBarcode('00123').length===1,'Old single HTML sheet not searchable');
+    load(w, fixture()); exported=w.serializeCurrentProject();
+    check(exported.workbook.sheets.length===2,'v7 sheets lost');
+    check(exported.workbook.sheets.every((s,i)=>JSON.stringify(s.snapshot.data)===JSON.stringify(fixture().workbook.sheets[i].snapshot.data)),'v7 cells changed');
+    const ids=JSON.stringify(exported.workbook.sheets.map(s=>s.snapshot.rowMeta));
+    load(w, JSON.parse(JSON.stringify(exported)));
+    check(JSON.stringify(w.serializeCurrentProject().workbook.sheets.map(s=>s.snapshot.rowMeta))===ids,'v8 IDs changed on reload');
+    w.openStockBarcodeModal(); w.setStockBarcodeMode('writeoff');
+    const before=w.serializeCurrentProject();
+    d.getElementById('stockBarcodeAmount').value='2';
+    check(w.applyStockBarcodeScan('00999')===true,'Cross-sheet sale failed');
+    let after=w.serializeCurrentProject();
+    check(after.workbook.activeSheetId==='sheet-1','Sale switched sheet');
+    check(after.workbook.sheets[1].snapshot.data[0][2]==='2','Wrong sale quantity');
+    check(JSON.stringify(after.workbook.sheets[0])===JSON.stringify(before.workbook.sheets[0]),'Unrelated sheet changed');
+    check(w.findStockRowsByBarcode(']E0009\n99').length===1,'Scanner prefix or newline broke barcode matching');
+    const saleJournal=JSON.stringify(after.stock);
+    const originalSound=w.playStockErrorSound;let soundCalls=0;
+    w.playStockErrorSound=()=>{soundCalls++;originalSound();};
+    try { check(w.applyStockBarcodeScan('not-found')===false,'Unknown accepted'); }
+    finally { w.playStockErrorSound=originalSound; }
+    check(soundCalls===1,'Unknown barcode did not trigger sound');
+    check(JSON.stringify(w.serializeCurrentProject().stock)===saleJournal,'Unknown changed stock');
+    check(d.getElementById('stockBarcodeStatus').textContent.includes('ни на одном листе'),'Unknown alert missing');
+    w.applyStockBarcodeScan('00123');
+    check(d.querySelectorAll('.stock-product-option').length===2,'Duplicates not shown');
+    check(JSON.stringify(w.serializeCurrentProject().stock)===saleJournal,'Duplicate silently applied');
+    d.querySelectorAll('.stock-product-option')[1].click(); d.getElementById('stockConfirmProduct').click();
+    check(w.serializeCurrentProject().workbook.sheets[1].snapshot.data[1][2]==='5','Duplicate choice applied to wrong sheet');
+    w.setStockBarcodeMode('receipt'); w.setStockEntryMode('manual');
+    d.getElementById('stockManualSearch').value='NGK B2'; w.searchStockManually();
+    d.querySelector('.stock-product-option').click(); d.getElementById('stockConfirmProduct').click();
+    check(w.serializeCurrentProject().workbook.sheets[1].snapshot.data[0][2]==='4','Manual receipt failed');
+    // Reload a saved v8 and check that locks are shown without opening inventory panel.
+    const saved=w.serializeCurrentProject();
+    const savedStock=JSON.stringify(saved.stock);
+    load(w,JSON.parse(JSON.stringify(saved)));
+    check(JSON.stringify(w.serializeCurrentProject().stock)===savedStock,'Existing movement journal lost after JSON reload');
+    w.setStockEntryMode('barcode');w.setStockBarcodeMode('receipt');
+    const persist=w.saveTableData;
+    const balanceBefore=JSON.stringify(w.serializeCurrentProject().workbook);
+    w.saveTableData=()=>false;
+    try { check(w.applyStockBarcodeScan('00999')===false,'Failed persistence was accepted'); }
+    finally { w.saveTableData=persist; }
+    check(JSON.stringify(w.serializeCurrentProject().workbook)===balanceBefore,'Failed persistence changed cells');
+    check(JSON.stringify(w.serializeCurrentProject().stock)===savedStock,'Failed persistence changed journal');
+    const active={id:'test-inventory',number:'ТЕСТ-ИНВ',scope:{sheetIds:['sheet-1']},status:'counting',lines:[],unknownBarcodes:[]};
+    saved.inventory={activeSessionId:active.id,sessions:[active],ui:{mode:'closed'}};
+    for(const status of ['counting','review','partially-applied']) {
+      active.status=status; load(w,JSON.parse(JSON.stringify(saved)));
+      check(!d.getElementById('inventoryLockBanner').hidden,`Banner missing: ${status}`);
+      check(d.getElementById('stockBarcodeOpen').disabled,`Stock not locked: ${status}`);
+      check([...d.querySelectorAll('.sheet-tab')].every(tab=>tab.disabled),`Tabs not locked: ${status}`);
+      check(d.body.classList.contains('inventory-locked'),`Cells not styled: ${status}`);
+    }
+    load(w,fixture()); w.closeStockBarcodeModal();
+    check(d.getElementById('inventoryLockBanner').hidden && !d.getElementById('stockBarcodeOpen').disabled,'Lock not cleared');
+    const finalProject=JSON.parse(JSON.stringify(saved));finalProject.inventory={sessions:[],activeSessionId:null};
+    load(w,finalProject);w.saveTableData(false,{syncFile:false});
+    const expected=w.serializeCurrentProject();
+    // Browser cache must not restore the database. Transfer using actual JSON bytes.
+    const transferred=JSON.stringify(expected);
+    w.localStorage.setItem('oil-filters-table-v1',transferred);
+    w.hasUnsavedProjectChanges=()=>false; // Permit the test reload without a leave-page dialog.
+    await new Promise(resolve=>{frame.onload=resolve;frame.contentWindow.location.reload();});
+    w=frame.contentWindow;d=w.document;
+    await w.appReady;
+    check(w.serializeCurrentProject().workbook.sheets.length===1,'Browser cache was loaded automatically');
+    check(Object.keys(w.serializeCurrentProject().workbook.sheets[0].snapshot.data).length===0,'Browser cache leaked into a fresh table');
+    await w.importProjectFile(new w.File([transferred],'transfer.json',{type:'application/json'}));
+    const reopened=w.serializeCurrentProject();
+    check(JSON.stringify(reopened.workbook)===JSON.stringify(expected.workbook),'JSON transfer lost saved workbook');
+    check(JSON.stringify(reopened.stock)===JSON.stringify(expected.stock),'JSON transfer lost saved journal');
+    result.textContent=`Успешно: ${passed} проверок (старые JSON, все листы, выбор дублей, журнал, блокировки).`;
+  } catch(error) { result.textContent=`ОШИБКА после ${passed} проверок: ${error.stack}`; }
+};
+if(new URLSearchParams(location.search).has('autorun')) frame.addEventListener('load',()=>document.getElementById('run').click(),{once:true});
+</script></html>

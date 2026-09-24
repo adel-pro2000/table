@@ -9,7 +9,7 @@
     type="image/svg+xml"
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='white'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-size='42' font-weight='700' font-family='Arial,sans-serif' fill='%23d62828'%3EA%3C/text%3E%3C/svg%3E"
   />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=20260915-reopen-last-json" />
 </head>
 <body class="table-locked">
   <div class="app">
@@ -22,27 +22,43 @@
       <button id="openProject">Открыть проект</button>
       <button id="saveProject">Сохранить проект</button>
       <button id="saveProjectAs">Сохранить проект как...</button>
-      <button id="loadProjectOnline">Загрузить онлайн</button>
-      <button id="saveProjectOnline">Сохранить онлайн</button>
+      <button id="enableProjectAutosave" hidden>Разрешить автосохранение</button>
       <button id="downloadProjectCopy">Скачать JSON</button>
+      <button id="downloadBrowserBackup" hidden>Скачать прежнюю копию браузера</button>
       <button id="changeHistory">История изменений</button>
       <button id="inventoryOpen" type="button">Инвентаризация</button>
-      <button id="stockBarcodeOpen" type="button">Сканер: приход / списание</button>
+      <button id="stockBarcodeOpen" type="button">Продажа / оприходование</button>
       <button id="crossImport">Заполнить Кроссы</button>
       <button id="undoAction">Отменить</button>
       <button id="redoAction">Вернуть</button>
       <button id="merge" class="primary">Объединить выделение</button>
       <button id="unmerge">Разъединить всё</button>
       <span id="buildBadge" class="build-badge"></span>
-      <span id="syncStatus" class="sync-status" aria-live="polite">Браузер: ожидает | Файл: не выбран | Онлайн: по запросу</span>
-      <span class="hint">Фиксированная таблица на 7 столбцов, формулы: =A1+B1, =SUM(A1:B3), Ctrl+Z / Ctrl+Y для отмены и возврата действий. Проекты сохраняются в JSON вместе с историей добавленных и удаленных данных. Если браузер поддерживает File System Access API, повторное сохранение идёт в тот же файл без повторного выбора. В "Кроссы" правый клик открывает обычное меню браузера для вставки</span>
+      <span id="syncStatus" class="sync-status" aria-live="polite">JSON: не открыт</span>
+      <span class="hint">Изменения автоматически записываются в открытый JSON каждые 5 минут при наличии доступа на запись. Ввод в ячейке подтвердите Enter или переходом в другую ячейку. Перед переносом нажмите «Сохранить проект» и дождитесь подтверждения. Для новой базы сначала выберите файл через «Сохранить проект как…». Если браузер только скачивает JSON, сохраняйте копии вручную. Формулы: =A1+B1, =SUM(A1:B3), отмена: Ctrl+Z / Ctrl+Y.</span>
     </div>
     <input id="openProjectFile" type="file" accept=".json,application/json" hidden />
+
+    <section id="projectStartup" class="project-startup" aria-labelledby="projectStartupTitle">
+      <div>
+        <h2 id="projectStartupTitle">Открываю последний JSON…</h2>
+        <p id="projectStartupMessage" role="status">Читаю актуальный файл с диска.</p>
+      </div>
+      <div class="project-startup__actions">
+        <button id="reopenLastProject" type="button" class="primary" hidden>Открыть последний JSON</button>
+        <button id="chooseStartupProject" type="button">Открыть проект</button>
+      </div>
+    </section>
 
     <div class="table-section">
       <div class="table-layout">
         <div class="table-main">
           <div id="tableTitle" class="table-title">Масляные фильтра</div>
+          <div id="inventoryLockBanner" class="inventory-lock-banner" role="status" hidden>
+            <span class="inventory-lock-icon" aria-hidden="true">🔒</span>
+            <div><strong>Листы и ячейки заблокированы — идёт инвентаризация</strong><p id="inventoryLockDetails"></p></div>
+            <button id="inventoryLockOpen" type="button">Перейти к инвентаризации</button>
+          </div>
 
           <div class="sheet-tabs" aria-label="Листы таблицы">
             <div id="sheetTabsList" class="sheet-tabs__list" role="tablist" aria-label="Список листов"></div>
@@ -90,7 +106,7 @@
           <section class="search-card">
             <div class="search-card__title">Колонка "Кроссы"</div>
             <div class="search-card__hint">
-              Поиск применяется по кнопке. Доступны строгий режим и поиск по совпадению букв, цифр и символов.
+              Доступны строгий режим и поиск по совпадению букв, цифр и символов.
             </div>
             <div class="search-card__modes" role="group" aria-label="Режим поиска по кросам">
               <button id="articleSearchModeContains" class="search-mode-button is-active" type="button" data-mode="contains">По совпадению</button>
@@ -137,7 +153,7 @@
           <section class="search-card">
             <div class="search-card__title">Колонка "Автомобиль"</div>
             <div class="search-card__hint">
-              Поиск применяется по кнопке. Доступны строгий режим и поиск по совпадению букв, цифр и символов.
+              Доступны строгий режим и поиск по совпадению букв, цифр и символов.
             </div>
             <div class="search-card__modes" role="group" aria-label="Режим поиска по автомобилям">
               <button id="vehicleSearchModeContains" class="search-mode-button is-active" type="button" data-mode="contains">По совпадению</button>
@@ -159,7 +175,7 @@
           <section class="search-card">
             <div class="search-card__title">Колонка "Артикул"</div>
             <div class="search-card__hint">
-              Поиск применяется по кнопке. Доступны строгий режим и поиск по совпадению букв, цифр и символов.
+              Доступны строгий режим и поиск по совпадению букв, цифр и символов.
             </div>
             <div class="search-card__modes" role="group" aria-label="Режим поиска по артикулам">
               <button id="partNumberSearchModeContains" class="search-mode-button is-active" type="button" data-mode="contains">По совпадению</button>
@@ -320,22 +336,6 @@
     </div>
   </div>
 
-  <div id="onlineConfirmModal" class="modal-backdrop" hidden>
-    <div class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="onlineConfirmTitle" aria-describedby="onlineConfirmMessage">
-      <div class="modal-card__header">
-        <div>
-          <div id="onlineConfirmTitle" class="modal-card__title">Подтвердите операцию</div>
-          <div id="onlineConfirmMessage" class="modal-card__subtitle"></div>
-        </div>
-      </div>
-
-      <div class="modal-actions modal-actions--end">
-        <button id="onlineConfirmCancel" type="button">Отмена</button>
-        <button id="onlineConfirmApply" type="button" class="primary">Подтвердить</button>
-      </div>
-    </div>
-  </div>
-
   <div id="quantityAdjustModal" class="modal-backdrop" hidden aria-hidden="true">
     <div class="modal-card quantity-adjust-card" role="dialog" aria-modal="true" aria-labelledby="quantityAdjustTitle">
       <div class="modal-card__header">
@@ -348,8 +348,8 @@
 
       <div id="quantityAdjustCurrent" class="quantity-adjust-current"></div>
       <div class="quantity-adjust-modes" role="group" aria-label="Тип изменения количества">
-        <button id="quantityModeIncrease" class="quantity-mode-button is-active" type="button">+ Добавить</button>
-        <button id="quantityModeDecrease" class="quantity-mode-button" type="button">− Убавить</button>
+        <button id="quantityModeIncrease" class="quantity-mode-button is-active" type="button">+ Оприходовать</button>
+        <button id="quantityModeDecrease" class="quantity-mode-button" type="button">− Продать</button>
       </div>
       <label class="modal-field">
         <span id="quantityAdjustLabel">Количество для добавления</span>
@@ -365,36 +365,60 @@
   </div>
 
   <div id="stockBarcodeModal" class="modal-backdrop" hidden aria-hidden="true">
-    <div class="modal-card quantity-adjust-card" role="dialog" aria-modal="true" aria-labelledby="stockBarcodeTitle">
+    <div class="modal-card stock-operation-card" role="dialog" aria-modal="true" aria-labelledby="stockBarcodeTitle">
       <div class="modal-card__header">
         <div>
-          <div id="stockBarcodeTitle" class="modal-card__title">Операция по штрих-коду</div>
-          <div class="modal-card__subtitle">Сканер вводит код и отправляет Enter. Операция выполняется на текущем листе.</div>
+          <div id="stockBarcodeTitle" class="modal-card__title">Продажа / оприходование</div>
+          <div class="modal-card__subtitle">Поиск по всем листам. Продажа уменьшает остаток, оприходование увеличивает.</div>
         </div>
         <button id="stockBarcodeClose" type="button">Закрыть</button>
       </div>
 
       <div class="quantity-adjust-modes" role="group" aria-label="Тип складской операции">
-        <button id="stockBarcodeModeReceipt" class="quantity-mode-button is-active" type="button" aria-pressed="true">+ Приход</button>
-        <button id="stockBarcodeModeWriteoff" class="quantity-mode-button" type="button" aria-pressed="false">− Списание</button>
+        <button id="stockBarcodeModeReceipt" class="quantity-mode-button" type="button" aria-pressed="false">+ Оприходование</button>
+        <button id="stockBarcodeModeWriteoff" class="quantity-mode-button is-active" type="button" aria-pressed="true">− Продажа</button>
       </div>
-
+      <div class="stock-entry-modes" role="group" aria-label="Способ выбора товара">
+        <button id="stockEntryBarcode" type="button" aria-pressed="true">Сканер / штрих-код</button>
+        <button id="stockEntryManual" type="button" aria-pressed="false">Выбрать вручную</button>
+      </div>
+      <div class="stock-operation-settings">
+        <label class="modal-field"><span>Количество за операцию</span>
+          <input id="stockBarcodeAmount" type="number" min="1" step="1" value="1" inputmode="numeric" />
+        </label>
+        <label class="modal-field"><span>Комментарий (необязательно)</span>
+          <input id="stockOperationReason" maxlength="300" placeholder="Например, номер заказа или накладной" />
+        </label>
+      </div>
       <form id="stockBarcodeForm" class="stock-barcode-form">
         <label class="modal-field">
           <span>Штрих-код</span>
           <input id="stockBarcodeInput" inputmode="numeric" autocomplete="off" placeholder="Отсканируйте штрих-код" />
         </label>
-        <label class="modal-field">
-          <span>Количество за одно сканирование</span>
-          <input id="stockBarcodeAmount" type="number" min="1" step="1" value="1" inputmode="numeric" />
-        </label>
-        <button id="stockBarcodeSubmit" type="submit" class="primary">Добавить товар</button>
+        <button id="stockBarcodeSubmit" type="submit" class="primary">Продать</button>
       </form>
-
-      <div id="stockBarcodeStatus" class="stock-barcode-status" role="status">Выберите операцию и отсканируйте товар.</div>
+      <div id="stockManualPanel" hidden>
+        <label class="modal-field"><span>Найти товар на всех листах</span>
+          <input id="stockManualSearch" type="search" autocomplete="off" placeholder="Бренд, артикул или штрих-код" />
+        </label>
+      </div>
+      <p id="stockScanHint" class="stock-scan-hint">Сканирование + Enter сразу выполняет операцию с указанным количеством.</p>
+      <div id="stockBarcodeStatus" class="stock-barcode-status" role="alert" aria-atomic="true">Выберите операцию и отсканируйте товар.</div>
+      <section id="stockProductChoices" class="stock-product-choices" aria-label="Выбор товара" hidden>
+        <p id="stockChoiceSummary"></p>
+        <div id="stockProductList" class="stock-product-list"></div>
+        <button id="stockCancelSelection" type="button">Отменить выбор</button>
+      </section>
+      <div id="stockSelectedProduct" class="stock-selected-product" hidden>
+        <p id="stockSelectedDescription"></p>
+        <button id="stockConfirmProduct" type="button" class="primary">Подтвердить</button>
+      </div>
+      <details class="stock-recent"><summary>Последние операции</summary><ol id="stockRecentOperations"></ol></details>
     </div>
   </div>
 
-  <script src="script.js?v=20260907-article-copy-2"></script>
+  <script src="stock-service.js?v=20260910-sales-receipts"></script>
+  <script src="project-file-service.js?v=20260912-json-only"></script>
+  <script src="script.js?v=20260915-reopen-last-json"></script>
 </body>
 </html>
